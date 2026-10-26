@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ShortsClips Dashboard</title>
+<style>
+:root{--bg:#0d0d12;--side:#111118;--card:#17171f;--line:#2a2a36;--txt:#ececf1;--mut:#8b8b9a;--acc:#7c5cff;--acc2:#00e0a4;--err:#ff5c7a}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font-family:system-ui,Segoe UI,sans-serif}
+.app{display:flex;min-height:100vh}
+aside{width:230px;flex:none;background:var(--side);border-right:1px solid var(--line);padding:22px 14px;position:sticky;top:0;height:100vh}
+.logo{font-size:22px;font-weight:800;margin:0 8px 26px}.logo b{color:var(--acc)}
+nav a{display:flex;gap:10px;align-items:center;padding:11px 12px;border-radius:10px;color:var(--mut);text-decoration:none;font-size:15px;margin-bottom:4px;cursor:pointer}
+nav a:hover{background:#1c1c26;color:var(--txt)}nav a.on{background:var(--acc);color:#fff}
+nav .n{margin-left:auto;font-size:12px;background:#0f0f15;color:var(--mut);border-radius:20px;padding:1px 8px}nav a.on .n{background:#ffffff33;color:#fff}
+main{flex:1;min-width:0;padding:28px 28px 60px;max-width:1200px}
+h1{font-size:26px;margin:0 0 4px}.sub{color:var(--mut);margin:0 0 22px}
+h2{font-size:17px;margin:0 0 14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px;margin-bottom:20px}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+input[type=text],select,input[type=number]{background:#0f0f15;border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:11px 12px;font-size:15px}
+input[type=text]{flex:1;min-width:220px}input[type=number]{width:80px}
+.drop{border:2px dashed var(--line);border-radius:14px;padding:22px;text-align:center;color:var(--mut);cursor:pointer;margin:12px 0}
+.drop.on{border-color:var(--acc);color:var(--txt)}
+label{color:var(--mut);font-size:14px}.opts{display:flex;gap:18px;flex-wrap:wrap;margin:14px 0}
+button{background:var(--acc);color:#fff;border:0;border-radius:10px;padding:12px 22px;font-size:15px;font-weight:600;cursor:pointer}
+button:disabled{opacity:.5}.ghost{background:transparent;border:1px solid var(--line);color:var(--mut);padding:6px 12px;font-size:13px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:20px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
+.stat .v{font-size:28px;font-weight:800}.stat .k{color:var(--mut);font-size:13px;margin-top:2px}
+.chips{display:flex;gap:8px;flex-wrap:wrap}.chip{font-size:12px;border:1px solid var(--line);border-radius:20px;padding:4px 10px;color:var(--mut)}
+.chip.hit{border-color:var(--acc);color:var(--txt);background:#7c5cff22}
+.badge{display:inline-block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;border-radius:6px;padding:2px 7px;background:#0f0f15;border:1px solid var(--line);color:var(--mut);margin-right:6px;vertical-align:2px}
+.badge.youtube{color:#ff4e4e}.badge.tiktok{color:#25f4ee}.badge.instagram{color:#e1306c}.badge.facebook{color:#4f8bff}.badge.x{color:#fff}
+.job h3{margin:0;font-size:16px;overflow-wrap:anywhere}.st{font-size:13px;color:var(--mut)}.st.err{color:var(--err)}
+.bar{height:6px;background:#0f0f15;border-radius:9px;overflow:hidden;margin:10px 0}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--acc),var(--acc2));transition:width .4s}
+.clips{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:16px;margin-top:14px}
+.clip{background:#0f0f15;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.clip video{width:100%;aspect-ratio:9/16;background:#000;display:block}
+.clip .m{padding:10px}.score{display:inline-block;background:var(--acc2);color:#000;font-weight:700;border-radius:6px;padding:2px 7px;font-size:13px}
+.clip p{font-size:13px;color:var(--mut);margin:6px 0;max-height:54px;overflow:hidden}
+a.lnk{color:var(--acc);font-size:13px;margin-right:10px}
+.empty{color:var(--mut);text-align:center;padding:30px}
+.page{display:none}.page.on{display:block}
+.tool:not(:empty){background:#0f0f15;border:1px solid var(--acc);border-radius:12px;padding:14px;margin-top:12px}
+.tool h4{margin:0 0 4px;font-size:15px}
+/* pratinjau & MP4 berdampingan, tingginya mengikuti layar agar terlihat utuh tanpa scroll */
+.mgrid{display:flex;flex-wrap:wrap;gap:14px;margin-top:12px;justify-content:center}
+.mbox{background:#000;border:1px solid var(--line);border-radius:12px;overflow:hidden;position:relative;max-width:100%}
+.mbox iframe,.mbox video{height:min(calc(100vh - 160px),720px);width:auto;max-width:100%;border:0;display:block;background:#000}
+.mbox .fs{position:absolute;top:6px;right:8px;z-index:1;background:#0009;color:#fff;border:0;border-radius:6px;padding:2px 8px;font-size:13px;cursor:pointer}
+.mbox .cap{position:absolute;top:6px;left:8px;font-size:11px;font-weight:700;color:#fff;background:#0009;border-radius:6px;padding:2px 7px;z-index:1}
+.rv textarea,.rv input{width:100%;background:#0f0f15;border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:7px 9px;font:inherit;font-size:13px;margin:4px 0}
+.rv textarea{min-height:70px;resize:vertical}.rv .act{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}.rv .act button{padding:7px 12px;font-size:13px}
+.rbadge{font-size:11px;font-weight:700;border-radius:6px;padding:2px 7px;margin-left:6px}.rbadge.menunggu{background:#ffb54733;color:#ffb547}.rbadge.disetujui{background:#00e0a433;color:var(--acc2)}.rbadge.ditolak{background:#ff5c7a33;color:var(--err)}
+.narr{background:#7c5cff14;border:1px solid #7c5cff55;border-radius:8px;padding:8px;margin:6px 0;font-size:13px;line-height:1.45}.narr b{display:block;color:var(--acc);margin-bottom:3px}
+.narr button{margin-top:6px;padding:4px 10px;font-size:12px}.tool .opts{margin:10px 0}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}.tabs button{background:#0f0f15;border:1px solid var(--line);color:var(--mut);padding:8px 14px;font-size:14px}
+.tabs button.on{background:var(--acc);border-color:var(--acc);color:#fff}
+.qgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+.qcol h3{font-size:14px;margin:0 0 8px;color:var(--acc2)}.qcol .q{display:block;width:100%;text-align:left;background:#0f0f15;border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:8px 10px;margin-bottom:6px;font-size:14px;font-weight:400}
+.qcol .q:hover{border-color:var(--acc)}
+.vids{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}
+.vid{background:#0f0f15;border:1px solid var(--line);border-radius:12px;overflow:hidden}.vid img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block}
+.vid .m{padding:10px}.vid h4{margin:0 0 6px;font-size:14px;line-height:1.35}.vid .kv{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12px;color:var(--mut);margin:6px 0}
+.vid .kv b{color:var(--txt)}.hot{color:#ffb547!important}.vid .act{display:flex;gap:6px;margin-top:8px}.vid .act button{padding:6px 10px;font-size:12px}
+table.tq{width:100%;border-collapse:collapse;font-size:14px}table.tq td{padding:7px 4px;border-bottom:1px solid var(--line)}table.tq td:last-child{text-align:right;color:var(--acc2);white-space:nowrap}
+table.tq tr{cursor:pointer}table.tq tr:hover td{color:var(--txt);background:#1c1c26}
+.idea{background:#0f0f15;border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}.idea h4{margin:0 0 6px;font-size:15px}
+.idea ol{margin:6px 0;padding-left:20px;font-size:14px;color:var(--mut)}.loading{color:var(--mut);padding:20px;text-align:center}
+.chart svg{width:100%;height:160px;display:block}
+.note{font-size:13px;color:var(--mut);margin-top:10px;line-height:1.5}
+@media(max-width:760px){.app{display:block}aside{position:static;width:auto;height:auto;padding:14px 16px;border-right:0;border-bottom:1px solid var(--line)}
+ .stats{grid-template-columns:1fr 1fr}.logo{margin:0 0 10px}nav{display:flex;gap:6px;overflow-x:auto}nav a{white-space:nowrap;margin:0;padding:8px 12px}main{padding:20px 16px 50px}}
+</style></head><body><div class="app">
+<aside><div class="logo">Shorts<b>Clips</b></div>
+<nav>
+  <a data-p="home" class="on">📊 Ringkasan</a>
+  <a data-p="research">🔍 Riset Ide</a>
+  <a data-p="agent">🤖 Agen Trend <span class="n" id="n-rev">0</span></a>
+  <a data-p="motion">🎬 Motion Graphic</a>
+  <a data-p="create">✨ Buat Shorts</a>
+  <a data-p="dl">⬇️ Downloader <span class="n" id="n-dl">0</span></a>
+  <a data-p="gallery">🎬 Galeri Klip <span class="n" id="n-clips">0</span></a>
+  <a data-p="history">🗂️ Riwayat <span class="n" id="n-jobs">0</span></a>
+</nav></aside>
+<main>
+
+<section class="page on" id="p-home">
+  <h1>Ringkasan</h1><p class="sub">Semua aktivitas pembuatan Shorts/Reels/TikTok, 100% lokal.</p>
+  <div class="stats" id="stats"></div>
+  <div class="card"><h2>Sedang diproses</h2><div id="running"></div></div>
+  <div class="card"><h2>Klip terbaik</h2><div class="clips" id="top"></div></div>
+</section>
+
+<section class="page" id="p-research">
+  <h1>Riset Ide</h1><p class="sub">Cari tahu apa yang dicari audiens, video yang sedang meledak, dan tren pencarian, lalu jadikan ide konten.</p>
+  <form class="card" id="fr">
+    <div class="row"><input type="text" id="rq" placeholder="Topik / niche, mis. investasi saham, resep sehat, motivasi...">
+      <button id="go-r">🔍 Riset</button></div>
+    <div class="opts">
+      <label>Bahasa <select id="rlang"><option value="id">Indonesia</option><option value="en">English</option></select></label>
+      <label>Wilayah Trends <select id="rgeo"><option value="ID">Indonesia</option><option value="US">Amerika</option><option value="MY">Malaysia</option><option value="">Seluruh dunia</option></select></label>
+      <label>Jenis video <select id="rkind"><option value="shorts">Shorts (≤4 menit)</option><option value="long">Video panjang</option><option value="all">Semua</option></select></label>
+      <label>Diunggah <select id="rdays"><option value="7">7 hari</option><option value="30">30 hari</option><option value="90" selected>90 hari</option><option value="0">Kapan saja</option></select></label>
+      <label>Jumlah video <input type="number" id="rn" value="20" min="5" max="50"></label>
+    </div>
+  </form>
+  <div class="card">
+    <div class="tabs" id="rtabs"><button data-t="q" class="on">❓ Pertanyaan audiens</button><button data-t="v">🚀 Video outlier</button><button data-t="g">📈 Google Trends</button><button data-t="i">💡 Ide AI</button></div>
+    <div id="rt-q"><div class="empty">Masukkan topik lalu klik Riset.</div></div>
+    <div id="rt-v" hidden><div class="empty">Masukkan topik lalu klik Riset.</div></div>
+    <div id="rt-g" hidden><div class="empty">Masukkan topik lalu klik Riset.</div></div>
+    <div id="rt-i" hidden>
+      <div class="row" style="margin-bottom:12px"><label>Jumlah ide <input type="number" id="in" value="10" min="3" max="20"></label>
+        <label>AI <select id="imode"><option value="code">Claude Code (langganan Pro)</option><option value="api">Claude API (berbayar)</option></select></label>
+        <button id="go-i">💡 Buat Ide dari Hasil Riset</button></div>
+      <div id="ideas"><div class="empty">Jalankan riset dulu, lalu buat ide. Claude akan memakai pertanyaan, video outlier, dan Trends sebagai bahan.</div></div>
+    </div>
+    <div class="note">📈 Google Trends memakai pytrends (tidak resmi), jadi kadang gagal karena dibatasi Google. Coba lagi beberapa menit kemudian.
+      🚀 <b>Rasio</b> = views ÷ subscriber channel. Di atas 1× artinya videonya menjangkau lebih dari jumlah subscriber-nya (outlier).</div>
+  </div>
+</section>
+
+<section class="page" id="p-agent">
+  <h1>Agen Trend</h1><p class="sub">Topik yang sedang naik → naskah orisinal AI → footage stok bebas lisensi (Pexels) → suara AI + subtitle → kamu review.</p>
+  <form class="card" id="fa">
+    <h2>⚙️ Pengaturan</h2>
+    <div class="row"><input type="text" name="niche" placeholder="Niche channel, mis. keuangan pribadi, fakta sains, tips kesehatan"></div>
+    <div class="opts">
+      <label>Bahasa <select name="lang"><option value="id">Indonesia</option><option value="en">English</option></select></label>
+      <label>Wilayah trend <select name="geo"><option value="ID">Indonesia</option><option value="US">Amerika</option><option value="MY">Malaysia</option><option value="">Dunia</option></select></label>
+      <label>Suara <select name="voice">{% for k, v in voices.items() %}<option value="{{k}}">{{v}}</option>{% endfor %}</select></label>
+      <label>Durasi <input type="number" name="seconds" min="20" max="90" value="45"> detik</label>
+    </div>
+    <div class="opts">
+      <label>Video per putaran <input type="number" name="per_run" min="1" max="5" value="2"></label>
+      <label>Jalan otomatis tiap <input type="number" name="interval_hours" min="1" max="168" value="24"> jam</label>
+      <label><input type="checkbox" name="enabled"> Aktifkan jadwal otomatis</label>
+      <label>🤖 AI <select name="ai_mode"><option value="code">Claude Code (langganan Pro)</option><option value="api">Claude API (berbayar)</option></select></label>
+    </div>
+    <div class="opts">
+      <label><input type="checkbox" name="subtitles" checked> Subtitle</label>
+      <label>Warna sorot <select name="sub_color"><option>kuning</option><option>hijau</option><option>putih</option></select></label>
+      <label style="flex:1;min-width:200px">🏷️ Label <input type="text" name="credit_text" style="width:100%;margin-top:4px" placeholder="mis. @namachannelmu (kosong = tanpa label)"></label>
+    </div>
+    <div class="row"><input type="password" name="pexels_key" id="pxk" autocomplete="off" placeholder="Pexels API key (gratis di pexels.com/api)">
+      <button>💾 Simpan</button></div>
+    <div class="note" id="a-status"></div>
+  </form>
+  <div class="card"><h2>▶️ Buat sekarang</h2>
+    <div class="row"><input type="text" id="a-topic" placeholder="Topik manual (opsional). Kosongkan untuk dipilihkan agen dari trend">
+      <button id="a-run">🚀 Jalankan</button></div></div>
+  <div class="tabs" id="rv-tabs"><button data-r="menunggu" class="on">⏳ Menunggu review</button><button data-r="disetujui">✅ Disetujui</button><button data-r="ditolak">🗑️ Ditolak</button></div>
+  <div id="a-running"></div>
+  <div class="clips" id="a-review"></div>
+</section>
+
+<section class="page" id="p-motion">
+  <h1>Motion Graphic</h1><p class="sub">Animasi dibuat dari kode oleh Claude (teks kinetik, angka menghitung, peta & garis yang tergambar, grafik), lalu dirender jadi MP4.</p>
+  <form class="card" id="fm">
+    <div class="row"><input type="text" name="topic" placeholder="Topik / brief, mis. Tsutomu Yamaguchi: selamat dari 2 bom atom dalam 3 hari"></div>
+    <details style="margin-top:10px"><summary class="st">✍️ Pakai naskah sendiri (opsional)</summary>
+      <textarea name="script" rows="5" style="width:100%;margin-top:8px;background:#0f0f15;border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:10px;font:inherit" placeholder="Tempel naskah narasimu. Kata-katanya tidak akan diubah, AI hanya membagi adegan dan merancang visualnya."></textarea></details>
+    <div class="opts">
+      <label>Format <select name="aspect"><option value="9:16">9:16 Shorts/Reels</option><option value="16:9">16:9 YouTube</option><option value="1:1">1:1 Feed</option></select></label>
+      <label>Gaya <select name="style">{% for k, v in styles.items() %}<option value="{{k}}" title="{{v}}">{{k|capitalize}}</option>{% endfor %}</select></label>
+      <label>Durasi ± <input type="number" name="seconds" min="5" max="120" value="30"> detik</label>
+      <label>Bahasa <select name="lang"><option value="id">Indonesia</option><option value="en">English</option></select></label>
+    </div>
+    <div class="opts">
+      <label>🎙️ Suara <select name="voice_mode" id="m-vm"><option value="ai">Suara AI</option><option value="upload">Narasi saya (upload audio)</option><option value="none">Tanpa suara (isi di CapCut)</option></select></label>
+      <label id="m-voice">Suara AI <select name="voice">{% for k, v in voices.items() %}<option value="{{k}}">{{v}}</option>{% endfor %}</select></label>
+      <label id="m-audio" style="display:none">File narasi <input type="file" name="audio" accept="audio/*,video/*"></label>
+      <label>🤖 AI <select name="ai_mode"><option value="code">Claude Code (langganan Pro)</option><option value="api">Claude API (berbayar)</option></select></label>
+    </div>
+    <div class="row"><input type="text" name="notes" placeholder="Catatan gaya (opsional), mis. warna merah-hitam, ada peta Jepang, font serif, tanpa partikel"><button id="go-m">🎬 Buat</button></div>
+    <div class="note">⏱️ Sekitar 10–20 menit: naskah → suara → Claude menulis kode animasi (tahap terlama, 5–15 menit; waktu berjalannya terlihat di status) → uji → render tiap frame. Upload narasi sendiri: animasi otomatis disinkronkan dengan waktu bicaramu (Whisper).</div>
+  </form>
+  <div id="m-jobs"></div>
+</section>
+
+<section class="page" id="p-create">
+  <h1>Buat Shorts</h1><p class="sub">Tempel link video panjang atau upload file. Klip terbaik dipilih otomatis lalu dipotong 9:16 dengan subtitle.</p>
+  <form class="card" id="f">
+    <div class="row"><input type="text" name="url" id="url-c" placeholder="Link YouTube, TikTok, Instagram, Facebook, X, Twitch..."><button id="go">✨ Buat Klip</button></div>
+    <div class="chips" id="chips-c" style="margin-top:10px"></div>
+    <div class="note" id="short-note" hidden>📱 Video pendek (Instagram / TikTok / YouTube Shorts): dibuat <b>1 klip penuh</b> sesuai durasi aslinya, tidak dibagi. Video upload atau link berdurasi ≤3 menit juga diperlakukan sama.</div>
+    <div class="drop" id="drop">atau seret & lepas file video di sini (klik untuk pilih)<input type="file" name="video" id="file" accept="video/*" hidden></div>
+    <div class="opts">
+      <label>Jumlah klip <input type="number" name="n_clips" value="5" min="1" max="20"></label>
+      <label>Durasi (detik) <input type="number" name="min_len" value="20"> – <input type="number" name="max_len" value="60"></label>
+      <label>Bahasa <select name="language"><option value="">Otomatis</option><option value="id">Indonesia</option><option value="en">English</option></select></label>
+      <label>Model <select name="model"><option>tiny</option><option>base</option><option selected>small</option><option>medium</option><option>large-v3</option></select></label>
+    </div>
+    <div class="opts">
+      <label><input type="checkbox" name="vertical" checked> Format 9:16</label>
+      <label><input type="checkbox" name="face" checked> Ikuti wajah</label>
+      <label><input type="checkbox" name="subtitles" checked> Subtitle animasi</label>
+      <label>🤖 Pemilih momen <select name="ai_mode" onchange="document.getElementById('apibox').style.display=this.value=='api'?'contents':'none'">
+        <option value="code" selected>Claude Code (langganan Pro)</option><option value="api">Claude API (berbayar)</option><option value="local">Lokal (tanpa AI)</option></select></label>
+      <span id="apibox" style="display:none">
+      <label>Model AI <select name="ai_model"><option value="claude-sonnet-5-5" selected>Sonnet 5.5</option><option value="claude-haiku-5-5">Haiku 5.5 (murah)</option><option value="claude-opus-5-5">Opus 5.5 (terbaik)</option></select></label>
+      <input type="text" name="api_key" style="flex:0 1 300px;min-width:200px" placeholder="{{ 'API key Claude tersimpan ✓ (isi untuk ganti)' if has_key else 'API key Claude (sk-ant-...)' }}"></span>
+    </div>
+    <div class="opts"><label>Warna sorot <select name="sub_color"><option>kuning</option><option>hijau</option><option>putih</option></select></label></div>
+    <div class="opts">
+      <label>🎙️ Suara <select name="voice_mode" onchange="this.form.querySelector('.vsel').style.display=this.value==='ai'?'':'none'">
+        <option value="asli">Suara asli video</option><option value="ai">Narasi baru + suara AI</option><option value="teks">Narasi saja (isi suara sendiri)</option><option value="kosong">Video saja (suara &amp; teks diisi sendiri)</option></select></label>
+      <label class="vsel" style="display:none">Suara AI <select name="voice">{% for k, v in voices.items() %}<option value="{{k}}">{{v}}</option>{% endfor %}</select></label>
+      <label>📝 Sumber narasi <select name="narr_source" id="nsrc"><option value="transkrip">Dari ucapan di video (transkrip)</option><option value="visual">Dari visual video (AI melihat gambar)</option></select></label>
+      <label>🌐 Bahasa narasi <select name="narr_lang" class="nlang"><option value="">Otomatis (ikut suara AI)</option><option value="id">Indonesia</option><option value="en">English</option></select></label>
+    </div>
+    <div class="opts">
+      <label style="flex:1;min-width:240px">🏷️ Label sumber <input type="text" name="credit_text" style="width:100%;margin-top:4px" placeholder="Kosongkan = tanpa label. Mis: Video: {channel} atau © NamaPemilik"></label>
+      <label>Opacity <input type="range" name="credit_opacity" min="10" max="100" step="5" value="60" oninput="this.nextElementSibling.textContent=this.value+'%'"><span>60%</span></label>
+      <label>Posisi <select name="credit_pos"><option value="bawah">Bawah</option><option value="atas">Atas</option></select></label>
+    </div>
+    <div class="note">🏷️ <b>Label sumber</b>: teks semi-transparan sepanjang video untuk menandakan pemilik video asli. Tulis <code>{channel}</code> untuk otomatis diganti nama channel/akun pemilik video.</div>
+    <div class="note">🎙️ <b>Narasi baru</b>: Claude menulis ulang isi tiap klip dengan kata-kata berbeda dari video. <b>Suara AI</b> membacakannya dengan satu suara yang sama untuk semua klip, dan subtitle mengikuti narasi.
+      <b>Narasi saja</b>: video tanpa suara, dan naskahnya ditampilkan di bawah klip untuk kamu rekam sendiri.<br>
+      📝 <b>Sumber narasi "visual"</b>: untuk video tanpa omongan (hewan, alam, aksi). Claude melihat frame video, mengenali apa yang terjadi (mis. burung menyambar ikan), lalu menulis narasi berisi fakta menarik yang sesuai urutan kejadian. Tanpa transkripsi, jadi lebih cepat.<br>
+      🌐 <b>Bahasa narasi</b> "Otomatis" mengikuti suara AI (suara English → naskah English). Kolom <b>Bahasa</b> di atas hanya untuk mengenali ucapan di video.
+      <b>Video saja</b>: potongan video 9:16 tanpa suara dan subtitle. Hint narasi AI tetap ditampilkan sebagai ide, tapi suara dan teksnya kamu isi sendiri.</div>
+  </form>
+  <div id="jobs-create"></div>
+</section>
+
+<section class="page" id="p-dl">
+  <h1>Downloader</h1><p class="sub">Unduh video atau audio saja, tanpa membuat klip.</p>
+  <form class="card" id="fd">
+    <div class="row"><input type="text" name="url" id="url-d" placeholder="Tempel link video...">
+      <select name="format"><option value="mp4">🎞️ Video MP4 (≤1080p)</option><option value="mp3">🎵 Audio MP3</option></select>
+      <button id="go-d">⬇️ Unduh</button></div>
+    <div class="chips" id="chips-d" style="margin-top:10px"></div>
+    <div class="note">Didukung lewat yt-dlp: YouTube (termasuk Shorts), TikTok, Instagram (Reels/post), Facebook, X/Twitter, Twitch (VOD & clip), Vimeo, Reddit, Dailymotion, Bilibili, Kick, Threads, dan ratusan situs lain.<br>
+    Video private atau yang perlu login (sering terjadi di Instagram/Facebook) tidak bisa diunduh. Gunakan hanya untuk video milik sendiri atau yang sudah diizinkan pemiliknya.</div>
+  </form>
+  <div id="jobs-dl"></div>
+</section>
+
+<section class="page" id="p-gallery">
+  <h1>Galeri Klip</h1><p class="sub">Semua klip hasil, diurutkan dari skor viral tertinggi.</p>
+  <div class="clips" id="gallery"></div>
+</section>
+
+<section class="page" id="p-history">
+  <h1>Riwayat</h1><p class="sub">Semua project dan unduhan.</p>
+  <div class="row" style="margin-bottom:14px"><select id="filter"><option value="">Semua platform</option></select></div>
+  <div id="history"></div>
+</section>
+
+</main></div>
+<script>
+const PLATS={youtube:['youtube.com','youtu.be'],tiktok:['tiktok.com'],instagram:['instagram.com'],facebook:['facebook.com','fb.watch'],x:['twitter.com','x.com'],
+  twitch:['twitch.tv'],vimeo:['vimeo.com'],reddit:['reddit.com'],dailymotion:['dailymotion.com','dai.ly'],bilibili:['bilibili.com','b23.tv'],kick:['kick.com'],threads:['threads.net']};
+const PROG={antri:2,download:5,transkripsi:30,analisis:60,render:75,selesai:100,error:100};
+let JOBS=[];
+const $=id=>document.getElementById(id);
+function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function fmt(t){return Math.floor(t/60)+':'+String(Math.floor(t%60)).padStart(2,'0')}
+function mb(b){return (b/1048576).toFixed(1)+' MB'}
+function platOf(u){const h=(u||'').toLowerCase().replace(/^https?:\/\//,'').split('/')[0];
+  for(const[k,ds]of Object.entries(PLATS))if(ds.some(d=>h===d||h.endsWith('.'+d)))return k;return u?'lainnya':'upload'}
+const isDone=j=>j.status==='selesai'||j.status==='error';
+const allClips=()=>JOBS.flatMap(j=>(j.clips||[]).map(c=>({...c,job:j}))).sort((a,b)=>b.viral-a.viral);
+
+// navigasi
+function go(p){document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('on',a.dataset.p===p));
+  document.querySelectorAll('.page').forEach(s=>s.classList.toggle('on',s.id==='p-'+p));try{localStorage.setItem('page',p)}catch(e){}}
+document.querySelectorAll('nav a').forEach(a=>a.onclick=()=>go(a.dataset.p));
+try{const p=localStorage.getItem('page');if(p&&$('p-'+p))go(p)}catch(e){}
+
+// chip platform yang terdeteksi saat mengetik link
+function chips(inp,box){const draw=()=>{const p=inp.value.trim()?platOf(inp.value.trim()):'';
+  box.innerHTML=Object.keys(PLATS).map(k=>`<span class="chip ${k===p?'hit':''}">${k}</span>`).join('')+(p==='lainnya'?'<span class="chip hit">situs lain</span>':'')};
+  inp.oninput=draw;draw()}
+chips($('url-c'),$('chips-c'));chips($('url-d'),$('chips-d'));
+// bahasa narasi dipilih: ganti suara AI ke suara bahasa yang sama (suara Inggris tidak cocok membaca naskah Indonesia)
+document.addEventListener('change',e=>{if(!e.target.matches('.nlang')||!e.target.value)return;const v=e.target.form&&e.target.form.elements.voice;
+  const vl=k=>k.includes('|')?k.split('|')[0]:k.split('-')[0];   // "id|en-US-..." = suara multibahasa untuk Indonesia
+  if(v&&vl(v.value)!==e.target.value){const o=[...v.options].find(x=>vl(x.value)===e.target.value);if(o)v.value=o.value}});
+// link Instagram/TikTok biasanya tanpa omongan: sarankan narasi dari visual + suara AI
+$('url-c').addEventListener('input',()=>{const u=$('url-c').value.trim(),p=platOf(u),vm=document.querySelector('#f [name=voice_mode]');
+  $('short-note').hidden=!(['instagram','tiktok','threads'].includes(p)||u.includes('/shorts/'));
+  if(['instagram','tiktok'].includes(p)&&$('nsrc').value!=='visual'){$('nsrc').value='visual';if(vm.value==='asli'){vm.value='ai';vm.onchange()}}});
+
+// upload
+const drop=$('drop'),file=$('file');
+drop.onclick=()=>file.click();
+drop.ondragover=e=>{e.preventDefault();drop.classList.add('on')};drop.ondragleave=()=>drop.classList.remove('on');
+drop.ondrop=e=>{e.preventDefault();file.files=e.dataTransfer.files;showFile()};file.onchange=showFile;
+function showFile(){if(file.files[0])drop.textContent='📹 '+file.files[0].name,drop.classList.add('on'),drop.appendChild(file)}
+
+async function submit(form,btn,api,label){btn.disabled=true;btn.textContent='Mengirim...';
+  try{const r=await fetch(api,{method:'POST',body:new FormData(form)});const d=await r.json();if(d.error)return alert(d.error);form.querySelector('[name=url]').value='';form.querySelector('[name=url]').oninput();refresh()}
+  catch(e){alert('Gagal: '+e)}finally{btn.disabled=false;btn.textContent=label}}
+$('f').onsubmit=e=>{e.preventDefault();submit(e.target,$('go'),'/api/create','✨ Buat Klip')};
+$('fd').onsubmit=e=>{e.preventDefault();submit(e.target,$('go-d'),'/api/download','⬇️ Unduh')};
+
+// tampilan
+const NARR_LABEL={ai:'🎙️ Narasi AI',teks:'📝 Naskah narasi (rekam sendiri)',kosong:'💡 Hint narasi AI'};
+function clipCard(c){const j=c.job;return `<div class="clip"><video src="/media/${j.id}/${c.file}?v=${c.v||0}" controls preload="metadata"></video>
+  <div class="m"><span class="score">${c.viral}/100</span> <span class="st">${fmt(c.start)}–${fmt(c.end)}</span><div style="font-weight:600;font-size:14px;margin-top:6px">${esc(c.title)}</div>${c.hook?`<div class="st" style="color:var(--acc2)">💡 ${esc(c.hook)}</div>`:''}${c.narration&&c.opts&&['ai','teks','kosong'].includes(c.opts.voice_mode)?`<div class="narr"><b>${NARR_LABEL[c.opts.voice_mode]}</b><div>${esc(c.narration)}</div>
+  <button type="button" class="ghost" onclick="navigator.clipboard.writeText(${esc(JSON.stringify(c.narration))});this.textContent='✓ Disalin'">📋 Salin naskah</button></div>`:`<p>${esc(c.text)}</p>`}${c.hashtags&&c.hashtags.length?`<div class="st">${esc(c.hashtags.join(' '))}</div>`:''}
+  <a class="lnk" href="/media/${j.id}/${c.file}?dl=1">⬇ Unduh</a>${isDone(j)&&!['download','auto'].includes(j.kind)?`<a class="lnk" href="#" onclick="return openTool('${j.id}','rerender','${c.file}')">🔁 Render ulang klip ini</a>`:''}</div></div>`}
+function jobCard(j,withClips=true){const done=isDone(j),p=Math.min(j.progress??PROG[j.status]??0,99),plat=j.platform||platOf(j.url);
+  const kind=j.kind==='download'?`<span class="badge">${j.format||'mp4'}</span>`:'';
+  const files=(j.files||[]).map(f=>`<a class="lnk" href="/media/${j.id}/${encodeURIComponent(f)}?dl=1">⬇ ${esc(f)}</a>`).join('')+(j.size?`<span class="st">${mb(j.size)}</span>`:'');
+  const clips=withClips&&(j.clips||[]).length?`<div class="clips">${j.clips.map(c=>({...c,job:j})).sort((a,b)=>b.viral-a.viral).map(clipCard).join('')}</div>`:'';
+  return `<div class="card job"><div class="row" style="justify-content:space-between;flex-wrap:nowrap"><div style="min-width:0"><h3><span class="badge ${plat}">${plat}</span>${kind}${esc(j.name)}</h3>
+  <div class="st ${j.status==='error'?'err':''}">${done?'':`<b>${p}%</b> · `}${j.status.toUpperCase()} — ${esc(j.log)}</div></div>
+  <div class="row" style="flex-wrap:nowrap;gap:6px">${done&&!['download','auto'].includes(j.kind)?`${j.full?'':`<button class="ghost" onclick="openTool('${j.id}','more')">➕ Buat klip lagi</button>`}${(j.clips||[]).length?`<button class="ghost" onclick="openTool('${j.id}','rerender')">🔁 Render ulang semua</button>`:''}`:''}
+  <button class="ghost" onclick="del('${j.id}')">Hapus</button></div></div><div class="tool" id="tool-${j.id}"></div>${done?'':`<div class="bar"><i style="width:${p}%"></i></div>`}
+  ${files?`<div style="margin-top:10px">${files}</div>`:''}${clips}</div>`}
+function set(id,html){const el=$(id);if(el.dataset.h!==html){el.innerHTML=html;el.dataset.h=html}}
+function render(){
+  const shorts=JOBS.filter(j=>j.kind!=='download'),dls=JOBS.filter(j=>j.kind==='download'),clips=allClips(),run=JOBS.filter(j=>!isDone(j));
+  const plats={};JOBS.forEach(j=>{const p=j.platform||platOf(j.url);plats[p]=(plats[p]||0)+1});
+  const top=Object.entries(plats).sort((a,b)=>b[1]-a[1])[0];
+  const avg=clips.length?Math.round(clips.reduce((s,c)=>s+(+c.viral||0),0)/clips.length):0;
+  set('stats',[[shorts.length,'Project Shorts'],[clips.length,'Klip dibuat'],[avg?avg+'/100':'–','Rata-rata skor viral'],[dls.length,'Unduhan'],[run.length,'Sedang diproses'],[top?top[0]:'–','Platform terbanyak']]
+    .map(([v,k])=>`<div class="stat"><div class="v">${esc(v)}</div><div class="k">${k}</div></div>`).join(''));
+  set('running',run.length?run.map(j=>jobCard(j,false)).join(''):'<div class="empty">Tidak ada proses berjalan.</div>');
+  set('top',clips.length?clips.slice(0,4).map(clipCard).join(''):'<div class="empty">Belum ada klip. Mulai dari menu Buat Shorts.</div>');
+  set('jobs-create',shorts.slice(0,5).map(j=>jobCard(j)).join(''));
+  set('jobs-dl',dls.map(j=>jobCard(j)).join('')||'<div class="empty">Belum ada unduhan.</div>');
+  set('gallery',clips.length?clips.map(clipCard).join(''):'<div class="empty">Belum ada klip.</div>');
+  const f=$('filter'),cur=f.value,opts='<option value="">Semua platform</option>'+Object.keys(plats).map(p=>`<option ${p===cur?'selected':''}>${p}</option>`).join('');
+  if(f.dataset.h!==opts){f.innerHTML=opts;f.dataset.h=opts}
+  set('history',JOBS.filter(j=>!cur||(j.platform||platOf(j.url))===cur).map(j=>jobCard(j,false)).join('')||'<div class="empty">Belum ada riwayat.</div>');
+  drawTools();drawAgent();drawMotion();
+  $('n-dl').textContent=dls.length;$('n-clips').textContent=clips.length;$('n-jobs').textContent=JOBS.length;
+}
+$('filter').onchange=render;
+
+// ===== Buat klip lagi / Render ulang =====
+const OPEN_TOOLS={};
+const VOICES={{ voices|tojson }};
+function openTool(id,mode,file){const j=JOBS.find(x=>x.id===id);if(!j)return false;const o=Object.assign({n_clips:5,min_len:20,max_len:60,vertical:true,face:true,subtitles:true,sub_color:'kuning',ai_mode:'code',voice_mode:'asli',voice:'id-ID-ArdiNeural',credit_text:'',credit_opacity:60,credit_pos:'bawah'},j.opts||{});
+  const ck=(k,l)=>`<label><input type="checkbox" name="${k}" ${o[k]?'checked':''}> ${l}</label>`;
+  const sel=(k,opts)=>`<select name="${k}">${opts.map(([v,l])=>`<option value="${v}" ${o[k]===v?'selected':''}>${l}</option>`).join('')}</select>`;
+  const style=`<div class="opts">${ck('vertical','Format 9:16')}${ck('face','Ikuti wajah')}${ck('subtitles','Subtitle animasi')}
+    <label>Warna sorot ${sel('sub_color',[['kuning','kuning'],['hijau','hijau'],['putih','putih']])}</label></div>
+    <div class="opts"><label>🎙️ Suara ${sel('voice_mode',[['asli','Suara asli video'],['ai','Narasi baru + suara AI'],['teks','Narasi saja (isi suara sendiri)'],['kosong','Video saja (suara & teks diisi sendiri)']])}</label>
+    <label>Suara AI ${sel('voice',Object.entries(VOICES))}</label>
+    <label>📝 Sumber narasi ${sel('narr_source',[['transkrip','Dari ucapan (transkrip)'],['visual','Dari visual video']])}</label>
+    <label>🌐 Bahasa narasi <select name="narr_lang" class="nlang">${[['','Otomatis (ikut suara AI)'],['id','Indonesia'],['en','English']].map(([v,l])=>`<option value="${v}" ${(o.narr_lang||'')===v?'selected':''}>${l}</option>`).join('')}</select></label>${mode==='rerender'?`<label><input type="checkbox" name="renarrate"> Tulis ulang naskah narasi</label>`:''}</div>
+    <div class="opts"><label style="flex:1;min-width:220px">🏷️ Label sumber <input type="text" name="credit_text" style="width:100%;margin-top:4px" value="${esc(o.credit_text||'')}" placeholder="Kosongkan = tanpa label. {channel} = ${esc(j.channel||'nama channel')}"></label>
+    <label>Opacity <input type="range" name="credit_opacity" min="10" max="100" step="5" value="${o.credit_opacity||60}" oninput="this.nextElementSibling.textContent=this.value+'%'"><span>${o.credit_opacity||60}%</span></label>
+    <label>Posisi ${sel('credit_pos',[['bawah','Bawah'],['atas','Atas']])}</label></div>`;
+  const html=mode==='more'?`<h4>➕ Buat klip lagi</h4><div class="st">Transkrip lama dipakai ulang, jadi tanpa unduh audio dan transkripsi. Momen yang sudah jadi klip (${(j.clips||[]).length}) dilewati.</div>
+    <div class="opts"><label>Jumlah klip baru <input type="number" name="n_clips" value="${o.n_clips}" min="1" max="20"></label>
+    <label>Durasi (detik) <input type="number" name="min_len" value="${o.min_len}"> – <input type="number" name="max_len" value="${o.max_len}"></label>
+    <label>🤖 Pemilih momen ${sel('ai_mode',[['code','Claude Code (langganan Pro)'],['api','Claude API (berbayar)'],['local','Lokal (tanpa AI)']])}</label></div>${style}`
+   :`<h4>🔁 Render ulang ${file?esc(file):'semua klip ('+(j.clips||[]).length+')'}</h4><div class="st">Momen klip tetap sama, hanya gaya yang berubah.${j.section_url||clipPlat(j)==='youtube'?' Potongan video diunduh ulang dari YouTube.':''}</div>${style}`;
+  OPEN_TOOLS[id]={mode,file,html:`<form onsubmit="return runTool(event,'${id}')">${html}<div class="row"><button>${mode==='more'?'✨ Buat':'🔁 Render ulang'}</button><button type="button" class="ghost" onclick="closeTool('${id}')">Batal</button></div></form>`};
+  // galeri/ringkasan tidak punya kartu project: buka di Riwayat
+  if(!document.querySelector(`#p-${currentPage()} #tool-${id}`))go('history');
+  drawTools();const el=document.querySelector(`#p-${currentPage()} #tool-${id}`);if(el)el.scrollIntoView({behavior:'smooth',block:'center'});return false}
+function clipPlat(j){return j.platform||platOf(j.url)}
+function currentPage(){return (document.querySelector('nav a.on')||{}).dataset?.p||'home'}
+function closeTool(id){delete OPEN_TOOLS[id];drawTools()}
+function drawTools(){document.querySelectorAll('.tool').forEach(el=>{const id=el.id.slice(5),t=OPEN_TOOLS[id];
+  if(!t){if(el.innerHTML)el.innerHTML='';return}if(el.dataset.h!==t.html){el.innerHTML=t.html;el.dataset.h=t.html}})}
+async function runTool(e,id){e.preventDefault();const t=OPEN_TOOLS[id],fd=new FormData(e.target);
+  ['vertical','face','subtitles','renarrate'].forEach(k=>e.target.elements[k]&&fd.set(k,e.target.elements[k].checked?'on':'off'));if(t.file)fd.append('files',t.file);
+  const r=await fetch(`/api/job/${id}/${t.mode}`,{method:'POST',body:fd});const d=await r.json();if(d.error)return alert(d.error);
+  closeTool(id);refresh();return false}
+
+// ===== Riset Ide =====
+const R={q:null,v:null,g:null};
+const num=n=>n==null?'–':n>=1e6?(n/1e6).toFixed(1)+'jt':n>=1e3?(n/1e3).toFixed(1)+'rb':String(n);
+document.querySelectorAll('#rtabs button').forEach(b=>b.onclick=()=>rtab(b.dataset.t));
+function rtab(t){document.querySelectorAll('#rtabs button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));['q','v','g','i'].forEach(k=>$('rt-'+k).hidden=k!==t)}
+async function getJ(url,opt){const r=await fetch(url,opt);const d=await r.json();if(!r.ok||d.error)throw new Error(d.error||r.statusText);return d}
+function setTopic(t){$('rq').value=t;$('fr').requestSubmit()}
+function useUrl(u,page){if(page==='create'){$('url-c').value=u;$('url-c').oninput()}else{$('url-d').value=u;$('url-d').oninput()}go(page);window.scrollTo(0,0)}
+$('fr').onsubmit=async e=>{e.preventDefault();const q=$('rq').value.trim();if(!q)return;
+  const lang=$('rlang').value,btn=$('go-r');btn.disabled=true;btn.textContent='Meriset...';
+  const L='<div class="loading">⏳ Mengambil data...</div>';$('rt-q').innerHTML=L;$('rt-v').innerHTML='<div class="loading">⏳ Menganalisis video (10–30 detik)...</div>';$('rt-g').innerHTML=L;
+  const p=new URLSearchParams({q,lang});
+  await Promise.all([
+    getJ('/api/research/questions?'+p).then(d=>{R.q=d;drawQ(d)}).catch(err=>$('rt-q').innerHTML=`<div class="empty st err">${esc(err.message)}</div>`),
+    getJ('/api/research/outliers?'+new URLSearchParams({q,n:$('rn').value,kind:$('rkind').value,days:$('rdays').value})).then(d=>{R.v=d;drawV(d)}).catch(err=>$('rt-v').innerHTML=`<div class="empty st err">${esc(err.message)}</div>`),
+    getJ('/api/research/trends?'+new URLSearchParams({q,lang,geo:$('rgeo').value})).then(d=>{R.g=d;drawG(d)}).catch(err=>{R.g=null;$('rt-g').innerHTML=`<div class="empty st err">${esc(err.message.slice(0,300))}</div>`})]);
+  btn.disabled=false;btn.textContent='🔍 Riset'};
+function drawQ(d){const g=Object.entries(d);
+  $('rt-q').innerHTML=g.length?`<div class="qgrid">${g.map(([k,v])=>`<div class="qcol"><h3>${esc(k)} (${v.length})</h3>${v.map(s=>`<button class="q" title="Klik untuk riset topik ini" onclick="setTopic(this.textContent)">${esc(s)}</button>`).join('')}</div>`).join('')}</div>`:'<div class="empty">Tidak ada saran.</div>'}
+function drawV(d){$('rt-v').innerHTML=d.length?`<div class="vids">${d.map(v=>`<div class="vid"><a href="${esc(v.url)}" target="_blank" rel="noopener"><img src="${esc(v.thumb)}" loading="lazy" alt=""></a><div class="m">
+  <h4>${esc(v.title)}</h4><div class="st">${esc(v.channel)} · ${fmt(v.duration)}${v.age_days?` · ${v.age_days} hari lalu`:''}</div>
+  <div class="kv"><span>👁 <b>${num(v.views)}</b></span><span>📅 <b>${num(v.views_per_day)}</b>/hari</span><span>👥 ${num(v.subs)}</span>
+  <span class="${(v.ratio||0)>=1?'hot':''}">⚡ Rasio <b class="${(v.ratio||0)>=1?'hot':''}">${v.ratio==null?'–':v.ratio+'×'}</b></span>${v.likes?`<span>👍 ${num(v.likes)}</span>`:''}</div>
+  <div class="act"><button onclick="useUrl('${esc(v.url)}','create')">✨ Buat Shorts</button><button class="ghost" onclick="useUrl('${esc(v.url)}','dl')">⬇️ Unduh</button></div></div></div>`).join('')}</div>`:'<div class="empty">Tidak ada video yang cocok dengan filter.</div>'}
+function drawG(d){const s=d.series||[],max=Math.max(1,...s.map(x=>x.value));
+  const pts=s.map((x,i)=>`${(i/Math.max(1,s.length-1)*600).toFixed(1)},${(150-x.value/max*140).toFixed(1)}`).join(' ');
+  const tbl=(rows,unit)=>rows.length?`<table class="tq">${rows.map(r=>`<tr onclick="setTopic(this.cells[0].textContent)"><td>${esc(r.query)}</td><td>${unit==='%'?(r.value>=5000?'Breakout':'+'+r.value+'%'):r.value}</td></tr>`).join('')}</table>`:'<div class="st">Tidak ada data.</div>';
+  $('rt-g').innerHTML=`${s.length?`<div class="chart"><div class="st">Minat pencarian 3 bulan terakhir (0–100) · ${esc(s[0].date)} → ${esc(s[s.length-1].date)}</div>
+  <svg viewBox="0 0 600 155" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="var(--acc2)" stroke-width="2.5" vector-effect="non-scaling-stroke"/></svg></div>`:'<div class="st">Volume pencarian terlalu kecil untuk grafik.</div>'}
+  <div class="qgrid" style="margin-top:16px"><div><h2>🔥 Pencarian naik (Rising)</h2>${tbl(d.rising||[],'%')}</div><div><h2>🏆 Pencarian teratas (Top)</h2>${tbl(d.top||[],'')}</div></div>`}
+$('go-i').onclick=async()=>{const q=$('rq').value.trim();if(!q)return alert('Isi topik dan jalankan riset dulu');
+  const b=$('go-i');b.disabled=true;b.textContent='Claude sedang berpikir...';$('ideas').innerHTML='<div class="loading">⏳ Membuat ide (bisa 30–90 detik)...</div>';
+  const context={questions:R.q,outlier_videos:(R.v||[]).slice(0,15).map(v=>({title:v.title,views:v.views,views_per_day:v.views_per_day,ratio:v.ratio,tags:v.tags})),trends:R.g&&{rising:R.g.rising,top:R.g.top}};
+  try{const d=await getJ('/api/research/ideas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({q,context,n:$('in').value,lang:$('rlang').value,mode:$('imode').value})});
+    $('ideas').innerHTML=d.map((x,i)=>`<div class="idea"><h4>${i+1}. ${esc(x.title)}</h4><div style="color:var(--acc2);font-size:14px">🎣 ${esc(x.hook)}</div>
+    <ol>${(x.outline||[]).map(o=>`<li>${esc(o)}</li>`).join('')}</ol><div class="st">📊 ${esc(x.why)}</div><div class="st" style="margin-top:4px">${esc((x.hashtags||[]).join(' '))}</div>
+    <button class="ghost" style="margin-top:8px" onclick="navigator.clipboard.writeText(this.parentElement.innerText.replace('📋 Salin','').trim());this.textContent='✓ Disalin'">📋 Salin</button></div>`).join('')}
+  catch(err){$('ideas').innerHTML=`<div class="empty st err">${esc(err.message)}</div>`}finally{b.disabled=false;b.textContent='💡 Buat Ide dari Hasil Riset'}};
+let timer;
+async function refresh(){clearTimeout(timer);try{JOBS=await (await fetch('/api/jobs')).json();render()}catch(e){}
+  timer=setTimeout(refresh,JOBS.some(j=>!isDone(j))?1500:6000)}
+async function del(id){if(!confirm('Hapus project ini?'))return;await fetch('/api/job/'+id,{method:'DELETE'});refresh()}
+refresh();
+
+// ===== Agen Trend =====
+let RV='menunggu';
+document.querySelectorAll('#rv-tabs button').forEach(b=>b.onclick=()=>{RV=b.dataset.r;document.querySelectorAll('#rv-tabs button').forEach(x=>x.classList.toggle('on',x===b));drawAgent()});
+async function loadAgent(){const a=await (await fetch('/api/auto')).json();const f=$('fa');
+  for(const[k,v]of Object.entries(a)){const el=f.elements[k];if(!el)continue;if(el.type==='checkbox')el.checked=!!v;else el.value=v??''}
+  $('pxk').placeholder=a.has_pexels?'Pexels API key tersimpan ✓ (isi untuk ganti)':'Pexels API key (gratis di pexels.com/api)';
+  const next=a.enabled&&a.last_run?new Date((a.last_run+a.interval_hours*3600)*1000):null;
+  $('a-status').innerHTML=`${a.has_pexels?'':'⚠️ <b>Isi Pexels API key</b> dulu: daftar gratis di <a class="lnk" href="https://www.pexels.com/api/" target="_blank" rel="noopener">pexels.com/api</a>. '}
+    ${a.enabled?`🟢 Jadwal aktif${next?' · putaran berikutnya '+next.toLocaleString('id-ID'):''}`:'⚪ Jadwal mati (hanya jalan saat klik Jalankan)'}
+    ${a.last_msg?`<br>Terakhir: ${esc(a.last_msg)}`:''}<br>Agen hanya berjalan selama server ShortsClips menyala.`}
+$('fa').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target);['enabled','subtitles'].forEach(k=>fd.set(k,e.target.elements[k].checked?'on':'off'));
+  await fetch('/api/auto',{method:'POST',body:fd});$('pxk').value='';loadAgent()};
+$('a-run').onclick=async()=>{const fd=new FormData();fd.append('topic',$('a-topic').value);await fetch('/api/auto/run',{method:'POST',body:fd});$('a-topic').value='';
+  $('a-status').insertAdjacentHTML('beforeend','<br>🚀 Agen dijalankan...');setTimeout(()=>{loadAgent();refresh()},4000)};
+function drawAgent(){const autos=JOBS.filter(j=>j.kind==='auto');
+  set('a-running',autos.filter(j=>!isDone(j)||j.status==='error').map(j=>jobCard(j,false)).join(''));
+  const list=autos.filter(j=>j.status==='selesai'&&j.clips[0]&&(j.clips[0].review||'menunggu')===RV);
+  $('n-rev').textContent=autos.filter(j=>j.status==='selesai'&&j.clips[0]&&(j.clips[0].review||'menunggu')==='menunggu').length;
+  const html=list.map(j=>{const c=j.clips[0];return `<div class="clip rv"><video src="/media/${j.id}/${c.file}" controls preload="metadata"></video><div class="m">
+    <span class="score">${c.viral||0}/100</span><span class="rbadge ${c.review}">${c.review}</span> <span class="st">${fmt(c.end)}</span>
+    <form onsubmit="return saveRv(event,'${j.id}')"><input name="title" value="${esc(c.title)}" maxlength="100" title="Judul">
+    <textarea name="description" title="Deskripsi">${esc(c.description||'')}</textarea><input name="hashtags" value="${esc((c.hashtags||[]).join(' '))}" title="Hashtag">
+    <details><summary class="st">Naskah narasi</summary><div class="st" style="margin-top:4px">${esc(c.narration)}</div></details>
+    <div class="act"><button name="review" value="disetujui">✅ Setujui</button><button class="ghost" name="review" value="ditolak">🗑️ Tolak</button><button class="ghost" name="review" value="">💾 Simpan</button>
+    <a class="lnk" href="/media/${j.id}/${c.file}?dl=1" style="align-self:center">⬇ Unduh</a><button type="button" class="ghost" onclick="del('${j.id}')">Hapus</button></div></form></div></div>`}).join('')
+    ||`<div class="empty">${RV==='menunggu'?'Belum ada video yang menunggu review.':'Kosong.'}</div>`;
+  const box=$('a-review');if(!box.contains(document.activeElement))set('a-review',html)}   // jangan timpa saat sedang mengetik
+async function saveRv(e,id){e.preventDefault();const fd=new FormData(e.target);if(e.submitter&&e.submitter.value)fd.set('review',e.submitter.value);
+  await fetch(`/api/job/${id}/review`,{method:'POST',body:fd});$('a-review').dataset.h='';refresh();return false}
+loadAgent();
+
+// ===== Motion Graphic =====
+$('m-vm').onchange=e=>{$('m-voice').style.display=e.target.value==='ai'?'':'none';$('m-audio').style.display=e.target.value==='upload'?'':'none'};
+$('fm').onsubmit=async e=>{e.preventDefault();const b=$('go-m');b.disabled=true;b.textContent='Mengirim...';
+  try{const d=await (await fetch('/api/motion/create',{method:'POST',body:new FormData(e.target)})).json();if(d.error)return alert(d.error);
+    e.target.reset();$('m-vm').onchange({target:$('m-vm')});refresh()}finally{b.disabled=false;b.textContent='🎬 Buat'}};
+const RATIO={'9:16':'9/16','16:9':'16/9','1:1':'1/1'};
+function drawMotion(){const ms=JOBS.filter(j=>j.kind==='motion');
+  const html=ms.map(j=>{const done=isDone(j),p=Math.min(j.progress??0,99),c=(j.clips||[])[0],ar=RATIO[j.aspect]||'9/16';
+    return `<div class="card job"><div class="row" style="justify-content:space-between;flex-wrap:nowrap"><div style="min-width:0"><h3><span class="badge">${esc(j.aspect||'')}</span><span class="badge">${esc((j.motion||{}).style||'')}</span>${esc(j.name)}</h3>
+    <div class="st ${j.status==='error'?'err':''}">${done?'':`<b>${p}%</b> · `}${j.status.toUpperCase()} — ${esc(j.log)}${j.version?` · versi ${j.version}`:''}</div></div>
+    <button class="ghost" onclick="del('${j.id}')">Hapus</button></div>${done?'':`<div class="bar"><i style="width:${p}%"></i></div>`}
+    ${j.version||c?`<div class="mgrid">${j.version?`<div class="mbox"><span class="cap">Pratinjau langsung v${j.version}</span><button class="fs" title="Layar penuh" onclick="this.nextElementSibling.requestFullscreen()">⛶</button><iframe sandbox="allow-scripts" allow="fullscreen" style="aspect-ratio:${ar}" src="/motion/${j.id}/preview?v=${j.version}"></iframe></div>`:''}
+    ${c?`<div class="mbox"><span class="cap">MP4</span><video style="aspect-ratio:${ar}" src="/media/${j.id}/${c.file}" controls preload="metadata"></video></div>`:''}</div>`:''}
+    ${c?`<div style="margin-top:10px"><a class="lnk" href="/media/${j.id}/${c.file}?dl=1">⬇ Unduh MP4</a>${c.description?`<div class="st" style="margin-top:6px">${esc(c.description)} ${esc((c.hashtags||[]).join(' '))}</div>`:''}</div>`:''}
+    ${done&&j.version?`<form class="row" style="margin-top:10px" onsubmit="return reviseM(event,'${j.id}')"><input type="text" name="instruction" placeholder="Revisi, mis. angka lebih besar, ganti warna jadi biru, peta lebih detail, perlambat transisi"><button>✏️ Revisi & render</button><button type="button" class="ghost" onclick="rerenderM('${j.id}')" title="Render ulang versi terakhir tanpa mengubah animasi">🔁 Render ulang</button></form>`:''}
+    ${(j.revisions||[]).length?`<div class="st" style="margin-top:6px">Riwayat revisi: ${j.revisions.map(esc).join(' → ')}</div>`:''}</div>`}).join('')||'<div class="empty">Belum ada motion graphic.</div>';
+  const box=$('m-jobs');if(!box.contains(document.activeElement))set('m-jobs',html)}
+async function rerenderM(id){const d=await (await fetch(`/api/motion/${id}/rerender`,{method:'POST'})).json();if(d.error)return alert(d.error);$('m-jobs').dataset.h='';refresh()}
+async function reviseM(e,id){e.preventDefault();const d=await (await fetch(`/api/motion/${id}/revise`,{method:'POST',body:new FormData(e.target)})).json();
+  if(d.error)return alert(d.error);e.target.reset();$('m-jobs').dataset.h='';refresh();return false}
+</script></body></html>

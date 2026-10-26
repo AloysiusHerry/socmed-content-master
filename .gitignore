@@ -1,0 +1,21 @@
+# Lingkungan Python
+venv/
+__pycache__/
+*.pyc
+
+# Data lokal (besar / pribadi)
+cache/
+jobs/
+hasil/
+ffmpeg/
+ffmpeg.zip
+ffmpeg_tmp/
+
+# Rahasia: API key Claude & Pexels disimpan di sini
+config.json
+.env
+
+# Lain-lain
+*.log
+.DS_Store
+Thumbs.db
