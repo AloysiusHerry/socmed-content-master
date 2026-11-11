@@ -15,6 +15,13 @@ STYLES = {
                  "font Bahnschrift, nuansa mahal dan tenang.",
     "edukasi": "Edukasi ceria: latar terang krem, warna cerah (biru, kuning, oranye), font Segoe UI tebal, "
                "ilustrasi bentuk sederhana, gerakan memantul yang ramah.",
+    "kartun": "Cerita kartun animasi: karakter 2D berkepala bulat besar putih (mata titik, alis tipis ekspresif, mulut kecil), "
+              "badan ramping berkostum sesuai zaman, bayangan cel lembut; latar penuh warna hangat yang digambar detail "
+              "(langit gradien, bangunan, alam) dengan lapisan parallax; SATU kata narasi besar putih ber-outline hitam di "
+              "tengah layar mengikuti kata yang sedang diucapkan.",
+    "stickman": "Stickman explainer: latar putih bersih (boleh tekstur kertas tipis), tokoh stickman garis hitam tebal "
+                "dengan kepala lingkaran, hanya aksen merah & biru untuk penekanan, properti digambar garis sederhana "
+                "ala papan tulis/whiteboard, teks kata kunci hitam tebal font Segoe UI.",
     "neon": "Neon cyber: latar hitam pekat, garis dan teks neon (magenta, cyan) dengan efek glow (shadowBlur), "
             "glitch ringan saat transisi, font Consolas/Bahnschrift.",
 }
@@ -35,6 +42,8 @@ CONTRACT = """KONTRAK TEKNIS (wajib, kalau dilanggar video gagal dirender):
 def _ask(prompt, api_key, model, log, label=None, est=600):
     """label: tampilkan waktu berjalan tiap 5 detik (log(msg, frac 0..0.95)) selama Claude bekerja;
     menulis kode animasi bisa 5-15 menit, jadi batas waktunya 30 menit."""
+    if api_key and api_key.startswith("gemini:"):
+        return _ask_gemini(prompt, api_key[7:], log, label, est)
     if api_key and api_key != "__claude_code__":
         import anthropic
         msg = anthropic.Anthropic(api_key=api_key).messages.create(
@@ -44,6 +53,72 @@ def _ask(prompt, api_key, model, log, label=None, est=600):
     return clipper._ask_claude_code(prompt, log, timeout=1800 if label else 900, progress=tick)
 
 
+GEMINI_TEXT_MODELS = ["gemini-pro-latest", "gemini-3.1-pro-preview", "gemini-flash-latest", "gemini-3.8-flash"]   # dicoba berurutan
+GEMINI_PRICE = {"flash": (0.30, 2.50), "pro": (1.25, 10.0)}   # perkiraan $/juta token (input, output)
+
+
+def _ask_gemini(prompt, key, log, label=None, est=600, images=None):
+    """Gemini API (pakai API key Gemini yang sama dengan menu Dokumenter). Token berpikir dibatasi supaya hemat.
+    images: [(teks label, path jpg/png), ...] disisipkan setelah prompt (untuk narasi dari isi video)."""
+    import time, threading, urllib.request, urllib.error, base64
+    parts = [{"text": prompt}]
+    for lbl, path in images or []:
+        if lbl: parts.append({"text": lbl})
+        with open(path, "rb") as fh:
+            parts.append({"inlineData": {"mimeType": "image/png" if path.lower().endswith(".png") else "image/jpeg",
+                                         "data": base64.b64encode(fh.read()).decode()}})
+    t0, done, last = time.time(), threading.Event(), ""
+    if label:
+        def tick():
+            while not done.wait(5):
+                s = int(time.time() - t0)
+                log(f"{label} (Gemini) {s // 60}:{s % 60:02d} berjalan", min(s / est, 0.95))
+        threading.Thread(target=tick, daemon=True).start()
+    try:
+        url0 = "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent"
+        def call(model, thinking):
+            gc = {"maxOutputTokens": 65536, "temperature": 0.7}
+            if thinking: gc["thinkingConfig"] = thinking
+            req = urllib.request.Request(url0.format(model), json.dumps({"contents": [{"parts": parts}],
+                                         "generationConfig": gc}).encode(),
+                                         {"Content-Type": "application/json", "x-goog-api-key": key})
+            with urllib.request.urlopen(req, timeout=900) as r:
+                return json.load(r)
+        for model in GEMINI_TEXT_MODELS:
+            data = None   # batasi token berpikir (hemat); model lama pakai thinkingBudget, model baru thinkingLevel
+            thinkings, busy = [{"thinkingLevel": "low"}, {"thinkingBudget": 8192 if label else 1024}, None], 0
+            while thinkings:
+                try:
+                    data = call(model, thinkings[0]); break
+                except urllib.error.HTTPError as e:
+                    last = f"{model}: HTTP {e.code} {e.read().decode('utf-8', 'replace')[:200]}"
+                    if e.code in (400, 403) and "API key" in last:
+                        raise RuntimeError("API key Gemini tidak valid") from None
+                    if e.code == 400: thinkings.pop(0); continue           # format thinking tidak didukung: coba format lain
+                    if e.code in (500, 503) and busy < 3:                   # server Gemini sibuk: tunggu lalu ulangi
+                        busy += 1; log(f"Gemini {model} sedang sibuk, coba lagi dalam {20 * busy} detik ({busy}/3)...")
+                        time.sleep(20 * busy); continue
+                    break   # 404/429/5xx berulang: coba model berikutnya
+                except (TimeoutError, OSError) as e:
+                    last = f"{model}: {e}"; break
+            if data is None:
+                why = "kuota gratis 0 / perlu billing" if "HTTP 429" in last else last.split("{")[0].strip()
+                log(f"Gemini {model} tidak tersedia ({why}), coba model berikutnya...")
+                continue
+            text = "".join(p.get("text", "") for c in data.get("candidates") or []
+                           for p in (c.get("content") or {}).get("parts") or [] if not p.get("thought"))
+            u = data.get("usageMetadata") or {}
+            inp, out = u.get("promptTokenCount", 0), u.get("candidatesTokenCount", 0) + u.get("thoughtsTokenCount", 0)
+            pi, po = GEMINI_PRICE["flash" if "flash" in model else "pro"]
+            clipper.record_usage(log, f"gemini:{model}", inp, out, cost=(inp * pi + out * po) / 1e6, secs=time.time() - t0)
+            if text.strip():
+                return text
+            last = f"{model}: jawaban kosong ({(data.get('candidates') or [{}])[0].get('finishReason')})"
+        raise RuntimeError(f"Gemini gagal: {last}")
+    finally:
+        done.set()
+
+
 def _extract_html(raw):
     m = re.search(r"<!DOCTYPE html.*?</html>|<html.*?</html>", raw, re.S | re.I)
     if not m:
@@ -51,7 +126,14 @@ def _extract_html(raw):
     return m.group(0)
 
 
-def write_script(topic, lang="id", seconds=30, api_key=None, model="claude-sonnet-5-5", log=print, own_script=""):
+STORY_RULE = """- Format CERITA dengan twist, bukan daftar fakta: kalimat pertama langsung aksi yang aneh (mis. "Dia sengaja membuat
+  celah di rel kereta setiap 12 meter."), lalu kisah kala-kini dengan satu tokoh cerdik, satu orang yang meremehkan dengan
+  1-2 dialog pendek dalam tanda kutip, dan saingan yang tampak menang; twist di 15 detik terakhir membuktikan sains/sejarah
+  di baliknya; kalimat terakhir menyebut fakta aslinya. Tanpa sapaan, tanpa "tahukah kamu", tanpa ajakan subscribe.
+- "visual": tulis aksi karakter (siapa, ekspresi, gerakan) + latar adegan; tokoh yang sama memakai deskripsi yang sama."""
+
+
+def write_script(topic, lang="id", seconds=30, api_key=None, model="claude-sonnet-5-5", log=print, own_script="", style=""):
     """own_script: naskah milik sendiri; kata-katanya dipertahankan, AI hanya membagi adegan & ide visual."""
     words = int(seconds * clipper.WORDS_PER_SEC)
     bahasa = {"id": "Bahasa Indonesia", "en": "English", "ms": "Bahasa Melayu"}.get(lang, "Bahasa Indonesia")
@@ -61,10 +143,16 @@ def write_script(topic, lang="id", seconds=30, api_key=None, model="claude-sonne
 atau menghapus kata-katanya (gabungan semua "text" harus sama persis dengan naskah):
 \"\"\"{own_script}\"\"\""""
     else:
-        rule = f"- Total {int(words * 0.9)}-{words} kata narasi (sekitar {seconds} detik)."
+        if seconds and seconds > 0:
+            rule = f"- Total {int(words * 0.9)}-{words} kata narasi (sekitar {seconds} detik)."
+        else:   # otomatis: panjang mengikuti kebutuhan cerita, maks 1 menit
+            mx = int(60 * clipper.WORDS_PER_SEC * 0.92)
+            rule = (f"- Panjang narasi kamu tentukan sendiri sesuai kebutuhan cerita/topik (biasanya 25-55 detik), "
+                    f"MAKSIMAL {mx} kata (= 1 menit). Lebih pendek lebih baik bila ceritanya sudah tuntas.")
     raw = _ask(f"""Tulis naskah video motion graphic pendek dalam {bahasa}.
 Topik / brief: {topic or '(lihat naskah)'}
 {rule}
+{STORY_RULE if style == "kartun" else '- "visual": tulis aksi stickman (pose, ekspresi) + properti yang digambar.' if style == "stickman" else ""}
 - 4-8 adegan. Adegan 1 = hook yang memancing rasa penasaran. Adegan terakhir = penutup yang membekas.
 - Fakta harus akurat. Utamakan angka, tanggal, perbandingan, lokasi yang bisa divisualkan.
 - "visual": deskripsi animasi untuk adegan itu (teks kinetik, angka menghitung naik, peta/garis yang tergambar,
@@ -81,6 +169,7 @@ Balas HANYA JSON: {{"title": "...", "description": "...", "hashtags": ["#..."],
 def timeline_from_tts(scenes, voice, out_dir, log=print):
     """Bacakan tiap adegan (edge-tts) lalu gabungkan; kembalikan (timeline, path audio, durasi)."""
     parts, t0, tl = [], 0.0, []
+    voice = clipper.eleven_preflight(voice, " ".join(sc["text"] for sc in scenes), log)
     for k, sc in enumerate(scenes):
         log(f"Suara adegan {k + 1}/{len(scenes)}...")
         a = os.path.join(out_dir, f"_n{k}.mp3")
@@ -131,10 +220,54 @@ def timeline_from_audio(audio, lang, log=print):
     return tl, round(clipper.get_duration(audio), 2)
 
 
+CARTOON = """INI ANIMASI KARAKTER (bukan infografis). Wajib:
+- Buat fungsi drawCharacter(ctx, x, y, scale, opts) yang dipakai ulang: kepala bulat besar putih dengan outline, mata titik
+  yang BERKEDIP berkala, alis yang berubah sesuai emosi (marah/kaget/senang/sombong), mulut kecil yang bergerak saat tokoh itu
+  berdialog, badan & tangan-kaki garis tebal yang berayun (idle sway, berjalan dengan siklus kaki, menunjuk, menyilangkan tangan).
+  Topi/kostum tiap tokoh berbeda warna supaya mudah dibedakan; tokoh yang sama selalu tampil sama.
+- Setiap adegan punya latar sendiri yang digambar detail (gradien langit, bangunan/alam, lantai berperspektif, 2-3 lapis parallax
+  yang bergeser pelan) dan properti cerita (rel, kapal, guci, mesin, dsb) yang ikut bergerak/beraksi.
+- Kamera hidup: zoom pelan ke tokoh, pan ke properti saat disebut, potong cepat antar sudut kira-kira tiap 1,5-3 detik.
+- Ekspresi dramatis saat emosi (wajah memerah ungu ketika marah, uap dari kepala, tanda seru), efek momen twist (shake, kilatan).
+- Caption: HANYA SATU kata yang sedang diucapkan (pakai "words"), besar (~90px), putih tebal outline hitam tebal, di tengah layar
+  sedikit di bawah tengah, efek pop kecil saat berganti. Jangan tampilkan kalimat penuh atau judul besar.
+"""
+
+
+STICKMAN = """INI ANIMASI STICKMAN (bukan infografis). Wajib:
+- Buat fungsi drawStickman(ctx, x, y, scale, pose, opts) yang dipakai ulang: kepala lingkaran outline hitam tebal, badan dan
+  tangan-kaki garis hitam tebal dengan ujung bulat (lineCap round) dan SENDI (siku, lutut) yang dihitung dari sudut, sehingga
+  pose bisa diinterpolasi halus: idle bernapas, berjalan (siklus kaki & ayunan tangan), berlari, menunjuk, mengangkat bahu,
+  melompat kaget, menepuk dahi, duduk. Wajah minimal: mata titik yang berkedip, alis & mulut garis untuk emosi.
+  Bedakan tokoh dengan satu aksesori kecil berwarna (topi merah, dasi biru, dsb); tokoh yang sama selalu tampil sama.
+- Latar putih, properti digambar garis seperti spidol (efek "tergambar" dengan lineDashOffset saat muncul): rumah, uang,
+  grafik, mesin, peta, panah. Merah = bahaya/salah, biru = benar/penting.
+- Kamera hidup: zoom pelan, pan ke properti saat disebut, potong antar adegan kira-kira tiap 2-3 detik, efek shake saat twist.
+- Caption: 1-3 kata yang sedang diucapkan (pakai "words"), hitam tebal ~80px dengan highlight stabilo kuning di belakang kata
+  kunci, di bagian bawah tengah. Jangan tampilkan kalimat penuh.
+"""
+
+
+def photo_rule(photos):
+    lst = "\n".join(f"  window.PHOTOS[{p['i']}] = \"{p['name']}\" ({p['w']}x{p['h']}px)" for p in photos)
+    return f"""FOTO DARI PENGGUNA (WAJIB dipakai, ini inti videonya):
+{lst}
+- PENGECUALIAN kontrak "tanpa gambar eksternal": window.PHOTOS disediakan sistem. Foto sudah dimuat sebelum renderFrame dipanggil: gambar dengan ctx.drawImage(window.PHOTOS[i], ...). Jangan membuat
+  <img>/fetch sendiri. Nama file adalah petunjuk isi foto; cocokkan foto dengan adegan yang paling relevan, urutan default
+  = urutan daftar. Setiap foto tampil minimal sekali dan cukup lama (>= 2 detik).
+- Perlakukan foto secara sinematik: crop "cover" sesuai rasio layar (atau bingkai/kartu foto dengan bayangan), gerak Ken Burns
+  (zoom/pan pelan), masuk-keluar dengan transisi (slide, mask lingkaran/wipe, polaroid jatuh), dan GABUNGKAN dengan elemen
+  motion di atasnya: teks kinetik, panah/lingkaran sorotan yang tergambar, angka, ikon, overlay gradien agar teks terbaca.
+- Jangan mendistorsi rasio foto (hitung skala dari naturalWidth/naturalHeight)."""
+
+
 def write_animation(title, timeline, duration, aspect="9:16", style="modern", notes="",
-                    api_key=None, model="claude-sonnet-5-5", log=print):
+                    api_key=None, model="claude-sonnet-5-5", log=print, photos=None):
+    """photos: [{"i": 0, "name": "...", "w": .., "h": ..}] foto upload pengguna (tersedia sebagai window.PHOTOS[i])."""
     W, H = SIZES.get(aspect, SIZES["9:16"])
-    log("Claude menulis kode animasi (1-3 menit)...")
+    log("Menulis kode animasi...")
+    if photos:
+        notes = (notes or "") + "\n\n" + photo_rule(photos)
     prompt = f"""Kamu motion designer kelas atas yang membuat animasi dengan kode (gaya video viral "motion graphics made with code").
 Buat motion graphic {aspect} ({W}x{H}) berdurasi {duration} detik.
 Judul: {title}
@@ -145,13 +278,13 @@ Timeline adegan (detik) beserta narasi dan ide visual. Visual tiap adegan HARUS 
 kata kunci/angka penting dimunculkan tepat saat diucapkan (lihat "words" bila ada):
 {json.dumps(timeline, ensure_ascii=False)[:14000]}
 
-Kualitas yang diharapkan: teks kinetik (kata muncul, memantul, berganti warna mengikuti narasi), angka yang menghitung naik,
+{CARTOON if style == "kartun" else STICKMAN if style == "stickman" else ""}Kualitas yang diharapkan: teks kinetik (kata muncul, memantul, berganti warna mengikuti narasi), angka yang menghitung naik,
 peta/garis/rute yang tergambar sendiri bila relevan, grafik, ikon geometris, transisi geser/zoom yang mulus antar adegan,
 palet & tipografi konsisten, detail halus (grain, partikel, glow) agar terlihat mahal. Jangan hanya slide teks statis.
 Tidak perlu subtitle penuh; tampilkan kata kunci saja.
 
 {CONTRACT.format(W=W, H=H, DUR=duration)}"""
-    return _extract_html(_ask(prompt, api_key, model, log, label="Claude menulis kode animasi"))
+    return _extract_html(_ask(prompt, api_key, model, log, label="AI menulis kode animasi"))
 
 
 def revise_animation(html, instruction, api_key=None, model="claude-sonnet-5-5", log=print, error=None):
@@ -165,7 +298,10 @@ Pertahankan semua yang tidak diminta berubah. Kode saat ini:
 {html}
 
 {CONTRACT.format(W=W, H=H, DUR=d.group(1) if d else 30)}"""
-    return _extract_html(_ask(prompt, api_key, model, log, label="Claude merevisi kode animasi"))
+    if "PHOTOS" in html:
+        prompt += ("\n- PENGECUALIAN: window.PHOTOS (array HTMLImageElement foto pengguna) sudah disediakan & dimuat oleh "
+                   "sistem sebelum renderFrame; tetap pakai dengan ctx.drawImage, jangan didefinisikan ulang.")
+    return _extract_html(_ask(prompt, api_key, model, log, label="AI merevisi kode animasi"))
 
 
 def _browser(p):
@@ -189,7 +325,41 @@ def guard(html):
     return html[:i] + CANVAS_GUARD + html[i:] if i >= 0 else CANVAS_GUARD + html
 
 
-def _open(p, html):
+def photo_script(photos):
+    """Foto upload pengguna -> window.PHOTOS (HTMLImageElement, data URI tersemat, tanpa jaringan);
+    window.PHOTOS_READY = true setelah semua selesai dimuat."""
+    import base64
+    if not photos:
+        return ""
+    srcs = []
+    for f in photos:
+        with open(f, "rb") as fh:
+            srcs.append("data:image/jpeg;base64," + base64.b64encode(fh.read()).decode())
+    return ("<script>(()=>{const S=" + json.dumps(srcs) + ";let n=0;window.PHOTOS_READY=false;"
+            "window.PHOTOS=S.map(s=>{const i=new Image();i.onload=i.onerror=()=>{if(++n===S.length)window.PHOTOS_READY=true};"
+            "i.src=s;return i});})()</script>")
+
+
+def with_photos(html, photos):
+    """Sisipkan pengaman canvas + foto sebelum script animasi."""
+    html = guard(html)
+    ps = photo_script(photos)
+    i = html.lower().find("<script")
+    return html[:i] + ps + html[i:] if i >= 0 else ps + html
+
+
+def prepare_photo(src, dst, max_side=1440):
+    """Kecilkan & jadikan JPEG (hemat memori browser saat render)."""
+    clipper.run(["ffmpeg", "-y", "-v", "error", "-i", src, "-vf",
+                 f"scale='if(gt(iw,ih),min({max_side},iw),-2)':'if(gt(iw,ih),-2,min({max_side},ih))'",
+                 "-frames:v", "1", "-q:v", "3", dst])
+    r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
+                        "-of", "csv=p=0", dst], capture_output=True, text=True)
+    w, h = (int(x) for x in r.stdout.strip().split(",")[:2])
+    return w, h
+
+
+def _open(p, html, photos=None):
     m = re.search(r'width="(\d+)" height="(\d+)"', html)
     W, H = (int(m.group(1)), int(m.group(2))) if m else (1080, 1920)
     b = _browser(p)
@@ -197,17 +367,19 @@ def _open(p, html):
     errors = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
     pg.route("**/*", lambda r: r.abort())   # animasi tidak boleh mengakses jaringan
-    pg.set_content(guard(html))
+    pg.set_content(with_photos(html, photos))
+    if photos:
+        pg.wait_for_function("window.PHOTOS_READY === true", timeout=60000)
     return b, pg, errors, (W, H)
 
 
-def check(html, fps=FPS):
+def check(html, fps=FPS, photos=None):
     """Coba gambar SETIAP frame yang nanti dirender (menggambar hanya ~3 ms/frame, jadi beberapa detik saja);
     error bisa muncul hanya di satu frame, jadi cek per 0,1 detik tidak cukup.
     kembalikan pesan error pertama atau None."""
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
-        b, pg, errors, _ = _open(p, html)
+        b, pg, errors, _ = _open(p, html, photos)
         try:
             ok = pg.evaluate("typeof window.renderFrame === 'function' && typeof window.DURATION === 'number'")
             if not ok:
@@ -223,12 +395,12 @@ def check(html, fps=FPS):
             b.close()
 
 
-def render(html, out_path, audio=None, fps=FPS, log=print):
+def render(html, out_path, audio=None, fps=FPS, log=print, photos=None):
     """Render tiap frame (PNG dari canvas) lalu kirim ke ffmpeg."""
     from playwright.sync_api import sync_playwright
     import base64
     with sync_playwright() as p:
-        b, pg, errors, (W, H) = _open(p, html)
+        b, pg, errors, (W, H) = _open(p, html, photos)
         dur = float(pg.evaluate("window.DURATION"))
         n = int(dur * fps)
         # JPEG kualitas tinggi: encode di browser ~6x lebih cepat dari PNG, beda kualitas tak terlihat setelah H.264

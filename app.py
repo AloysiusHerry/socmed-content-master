@@ -15,9 +15,10 @@ os.environ.setdefault("HF_HOME", os.path.join(_CACHE, "huggingface"))
 os.environ.setdefault("XDG_CACHE_HOME", _CACHE)
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
-from flask import Flask, render_template, request, jsonify, send_from_directory
+from flask import Flask, render_template, request, jsonify, send_from_directory, Response
+from urllib.parse import quote
 from werkzeug.utils import secure_filename
-import clipper, research, auto, motion
+import clipper, research, auto, motion, rmotion, miniature, documentary as doc, youtube_up as yt
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 JOBS_DIR = os.path.join(BASE, "jobs")
@@ -25,6 +26,25 @@ os.makedirs(JOBS_DIR, exist_ok=True)
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 ** 3
+LOG_DIR = os.path.join(BASE, "logs")
+
+
+@app.errorhandler(Exception)
+def on_error(e):
+    """Error tak terduga: catat traceback ke logs/error.log, dan untuk /api/ kirim pesan aslinya
+    (bukan 'INTERNAL SERVER ERROR') agar terlihat di popup."""
+    from werkzeug.exceptions import HTTPException
+    if isinstance(e, HTTPException):
+        return e
+    import time
+    os.makedirs(LOG_DIR, exist_ok=True)
+    with open(os.path.join(LOG_DIR, "error.log"), "a", encoding="utf-8") as f:
+        f.write(f"\n=== {time.strftime('%Y-%m-%d %H:%M:%S')} {request.method} {request.path}\n{traceback.format_exc()}")
+    traceback.print_exc()
+    msg = f"{type(e).__name__}: {e}"
+    if request.path.startswith("/api/"):
+        return jsonify(error=msg), 500
+    return f"Terjadi error: {msg} (detail di logs/error.log)", 500
 JOBS = {}
 CFG = os.path.join(BASE, "config.json")
 
@@ -35,19 +55,34 @@ def load_cfg():
     except Exception: return {}
 
 
+def write_json_atomic(path, data):
+    """Tulis ke file sementara lalu ganti sekaligus: kalau server mati di tengah penulisan,
+    file lama tetap utuh (tidak jadi 0 byte / setengah tertulis)."""
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
+
+
 def save_job(jid):
-    with open(os.path.join(JOBS_DIR, jid, "job.json"), "w", encoding="utf-8") as f:
-        json.dump(JOBS[jid], f, ensure_ascii=False, indent=2)
+    write_json_atomic(os.path.join(JOBS_DIR, jid, "job.json"), JOBS[jid])
 
 
 def load_jobs():
     for jid in os.listdir(JOBS_DIR):
         p = os.path.join(JOBS_DIR, jid, "job.json")
-        if os.path.exists(p):
+        if not os.path.exists(p):
+            continue
+        try:
             with open(p, encoding="utf-8") as f:
                 JOBS[jid] = json.load(f)
-                if JOBS[jid]["status"] not in ("selesai", "error"):
-                    JOBS[jid]["status"] = "error"; JOBS[jid]["log"] = "Terhenti (server restart)"
+        except (ValueError, OSError) as e:
+            # satu file rusak tidak boleh membuat server gagal start; simpan cadangannya untuk dicek
+            os.replace(p, p + ".rusak")
+            print(f"[peringatan] {p} rusak ({e}); dilewati, disimpan sebagai job.json.rusak")
+            continue
+        if JOBS[jid].get("status") not in ("selesai", "error", "naskah"):   # naskah tetap menunggu revisi
+            JOBS[jid]["status"] = "error"; JOBS[jid]["log"] = "Terhenti (server restart)"
 
 
 def _logger(jid):
@@ -77,9 +112,7 @@ def _highlights(tr, opts, log, exclude=(), src=None):
     if _visual(opts):
         return clipper.visual_segments(clipper.get_duration(src), n, opts["min_len"], opts["max_len"], exclude)
     want = n + len(exclude)   # minta lebih banyak, lalu buang yang bertabrakan dengan klip lama
-    mode = opts.get("ai_mode", "code")
-    key = {"code": "__claude_code__",
-           "api": opts.get("api_key") or load_cfg().get("api_key") or os.environ.get("ANTHROPIC_API_KEY")}.get(mode)
+    key = _shorts_key(opts) if opts.get("ai_mode", "code") in ("code", "api", "gemini") else None
     hl = None
     if key:
         try:
@@ -90,6 +123,18 @@ def _highlights(tr, opts, log, exclude=(), src=None):
     if not hl:
         hl = clipper.find_highlights(tr, want, opts["min_len"], opts["max_len"])
     return [c for c in (hl or []) if not _overlaps(c, exclude)][:n]
+
+
+def _shorts_key(opts):
+    """Mesin AI fitur Shorts: Claude Code (default), Claude API, atau Gemini API (key Gemini Dokumenter)."""
+    mode = opts.get("ai_mode", "code")
+    if mode == "gemini":
+        k = load_cfg().get("gemini_key") or os.environ.get("GEMINI_API_KEY")
+        if not k: raise RuntimeError("API key Gemini belum diisi (isi di editor Dokumenter → Gemini)")
+        return "gemini:" + k
+    if mode == "api":
+        return opts.get("api_key") or load_cfg().get("api_key") or os.environ.get("ANTHROPIC_API_KEY")
+    return "__claude_code__"
 
 
 def _narr_lang(opts):
@@ -108,8 +153,7 @@ def _narrate(clips, opts, log, force=False, src=None, work_dir=None):
     todo = [c for c in clips if force or not c.get("narration")]
     if not todo:
         return
-    key = (opts.get("api_key") or load_cfg().get("api_key") or os.environ.get("ANTHROPIC_API_KEY")) \
-        if opts.get("ai_mode") == "api" else "__claude_code__"
+    key = _shorts_key(opts)
     if _visual(opts):
         # narasi dari isi gambar: ambil frame tiap klip, Claude melihat lalu menulis narasi + fakta
         fdir = os.path.join(work_dir, "frames"); shutil.rmtree(fdir, ignore_errors=True); os.makedirs(fdir)
@@ -125,7 +169,7 @@ def _narrate(clips, opts, log, force=False, src=None, work_dir=None):
         shutil.rmtree(fdir, ignore_errors=True)
         return
     log(f"Menulis narasi baru untuk {len(todo)} klip...")
-    key = (opts.get("api_key") or load_cfg().get("api_key") or os.environ.get("ANTHROPIC_API_KEY"))         if opts.get("ai_mode") == "api" else "__claude_code__"
+    key = _shorts_key(opts)
     for c, t in zip(todo, clipper.write_narrations(todo, _narr_lang(opts), key,
                                                    opts.get("ai_model") or "claude-sonnet-5-5", log)):
         c["narration"] = t
@@ -188,6 +232,9 @@ def process(jid, src, opts):
         save_job(jid)
         if _visual(opts):
             tr = {"language": opts.get("language"), "segments": [], "words": []}   # narasi dari gambar, tanpa transkripsi
+        elif opts.get("transcript_ready") and os.path.exists(os.path.join(d, "transcript.json")):
+            # dari menu Dokumenter: timing kata sudah ada dari alignment, tanpa Whisper ulang
+            with open(os.path.join(d, "transcript.json"), encoding="utf-8") as f: tr = json.load(f)
         else:
             job["status"] = "transkripsi"
             tr = clipper.transcribe(job["src"], opts["model"], opts["language"], stage(10 if url else 0, 60))
@@ -218,7 +265,7 @@ def process(jid, src, opts):
     _run(jid, body)
 
 
-STYLE_KEYS = ("vertical", "face", "subtitles", "sub_color", "voice_mode", "voice",
+STYLE_KEYS = ("vertical", "face", "frame", "hook", "jumpcut", "punch", "sfx", "subtitles", "sub_color", "voice_mode", "voice",
               "credit_text", "credit_opacity", "credit_pos")
 def _clip_no(c):
     m = re.search(r"clip_(\d+)", c.get("file", ""))
@@ -361,7 +408,7 @@ AUTO_LOCK = threading.Lock()   # satu proses agen sekaligus agar CPU tidak penuh
 
 
 def save_cfg(cfg):
-    with open(CFG, "w", encoding="utf-8") as fh: json.dump(cfg, fh, ensure_ascii=False, indent=2)
+    write_json_atomic(CFG, cfg)
 
 
 def auto_cfg():
@@ -374,7 +421,7 @@ def auto_save(**kw):
 
 
 def _auto_key(a):
-    return (load_cfg().get("api_key") or os.environ.get("ANTHROPIC_API_KEY")) if a.get("ai_mode") == "api" else "__claude_code__"
+    return _shorts_key({"ai_mode": a.get("ai_mode", "code")})
 
 
 def _new_auto_job(title):
@@ -402,7 +449,8 @@ def process_auto(jid, topic, a):
             job["clips"] = [{"file": f, "start": 0, "end": dur, "title": job["name"], "viral": int(s.get("potensi") or topic.get("potensi") or 0),
                              "text": topic.get("why", ""), "hook": topic.get("angle", ""), "hashtags": s.get("hashtags", []),
                              "narration": " ".join(x["text"] for x in s["scenes"]), "description": desc,
-                             "opts": {"voice_mode": "ai"}, "review": "menunggu"}]
+                             "opts": {"voice_mode": "ai"}, "review": "menunggu",
+                             "flag": "; ".join(x for x in (s.get("cek") or []) if isinstance(x, str) and x.strip())}]
             job["topic"] = topic["topic"]
             job["status"] = "selesai"; log("Siap direview.", 100)
     _run(jid, body)
@@ -484,14 +532,25 @@ MOTION_LOCK = threading.Lock()   # render frame berat: satu per satu
 
 
 def _motion_key(p):
+    if p.get("ai_mode") == "gemini":
+        c = load_cfg()   # key khusus Motion (akun lain/Pro); kosong = pakai key Gemini Dokumenter
+        k = c.get("motion_gemini_key") or c.get("gemini_key") or os.environ.get("GEMINI_API_KEY")
+        if not k: raise RuntimeError("API key Gemini belum diisi (isi di form Motion)")
+        return "gemini:" + k
     return (load_cfg().get("api_key") or os.environ.get("ANTHROPIC_API_KEY")) if p.get("ai_mode") == "api" else "__claude_code__"
+
+
+def _photo_paths(jid):
+    """Path foto upload pengguna untuk job motion (urut), atau None."""
+    ph = (JOBS.get(jid) or {}).get("photos") or []
+    return [os.path.join(JOBS_DIR, jid, "photos", x["file"]) for x in ph] or None
 
 
 def _motion_html(jid, html, key, log):
     """Simpan versi animasi baru setelah lolos uji render (diperbaiki AI maks 2x bila error)."""
     job, d = JOBS[jid], os.path.join(JOBS_DIR, jid)
     for attempt in range(3):
-        err = motion.check(html)
+        err = motion.check(html, photos=_photo_paths(jid))
         if not err:
             break
         if attempt == 2:
@@ -510,7 +569,7 @@ def _motion_render(jid, html, log, lo):
     out = f"motion_v{job['version']}.mp4"
     with MOTION_LOCK:
         motion.render(html, os.path.join(d, out), job.get("audio") and os.path.join(d, job["audio"]),
-                      log=lambda m, p=None: log(m, None if p is None else lo + (100 - lo) * p))
+                      log=lambda m, p=None: log(m, None if p is None else lo + (100 - lo) * p), photos=_photo_paths(jid))
     m = job.get("meta") or {}
     job["clips"] = [{"file": out, "start": 0, "end": job["duration"], "title": m.get("title") or job["name"], "viral": 0,
                      "text": "", "hashtags": m.get("hashtags", []), "description": m.get("description", ""),
@@ -530,20 +589,69 @@ def process_motion(jid, p):
             meta = {"title": p["topic"] or (tl[0]["text"][:60] if tl else "Motion graphic")}
             job["audio"] = p["audio"]
         else:
-            meta = motion.write_script(p["topic"], p["lang"], p["seconds"], key, log=log, own_script=p["script"])
-            if p["voice_mode"] == "ai":
-                tl, audio, dur = motion.timeline_from_tts(meta["scenes"], p["voice"], d, log)
-                job["audio"] = os.path.basename(audio)
+            brief = p["topic"]
+            if job.get("photos"):   # naskah dirancang di sekitar foto upload
+                brief += "\nFoto yang akan tampil di video (rancang adegan yang memakainya, sesuai urutan): " + ", ".join(x["name"] for x in job["photos"])
+            if p.get("engine") == "remotion":
+                meta = rmotion.write_script(brief, p["lang"], p["seconds"], key, log=log, own_script=p["script"])
             else:
-                tl, dur = motion.timeline_estimate(meta["scenes"])
-        job.update(timeline=tl, duration=dur, meta={k: meta.get(k) for k in ("title", "description", "hashtags")})
-        job["name"] = meta.get("title") or job["name"]; save_job(jid)
-        log("Claude menulis kode animasi (biasanya 5-15 menit)...", 20)
-        html = motion.write_animation(job["name"], tl, dur, p["aspect"], p["style"], p["notes"], key, log=stage(20, 45))
-        log("Menguji animasi...", 45)
-        html = _motion_html(jid, html, key, log)
-        _motion_render(jid, html, log, 50)
+                meta = motion.write_script(brief, p["lang"], p["seconds"], key, log=log, own_script=p["script"], style=p["style"])
+            if p.get("review"):   # berhenti: pengguna cek & revisi naskah dulu, lalu /script melanjutkan
+                job.update(draft=meta, status="naskah", progress=15)
+                job["name"] = meta.get("title") or job["name"]
+                log("Naskah siap. Cek & perbaiki kata-katanya, lalu klik Lanjut.")
+                return
+            tl, dur = _motion_voice(jid, p, meta, log)
+        _motion_build(jid, p, key, meta, tl, dur, log, stage)
     _run(jid, body)
+
+
+def _motion_voice(jid, p, meta, log):
+    job, d = JOBS[jid], os.path.join(JOBS_DIR, jid)
+    if p["voice_mode"] == "ai":
+        tl, audio, dur = motion.timeline_from_tts(meta["scenes"], p["voice"], d, log)
+        job["audio"] = os.path.basename(audio)
+    else:
+        tl, dur = motion.timeline_estimate(meta["scenes"])
+    return tl, dur
+
+
+def process_motion_continue(jid, p):
+    """Lanjutan setelah naskah disetujui: suara -> kode animasi -> uji -> render."""
+    job = JOBS[jid]
+    log, stage = _logger(jid)
+    def body():
+        key = _motion_key(p)
+        meta = job.pop("draft")
+        job["status"] = "analisis"; log("Membuat suara dari naskah...", 16)
+        tl, dur = _motion_voice(jid, p, meta, log)
+        _motion_build(jid, p, key, meta, tl, dur, log, stage)
+    _run(jid, body)
+
+
+def _motion_build(jid, p, key, meta, tl, dur, log, stage):
+    job = JOBS[jid]
+    job.update(timeline=tl, duration=dur, meta={k: meta.get(k) for k in ("title", "description", "hashtags")})
+    job["name"] = meta.get("title") or job["name"]; save_job(jid)
+    if p.get("engine") == "remotion":   # template Remotion: tanpa kode animasi AI
+        job["status"] = "render"; job["scenes"] = meta["scenes"]
+        out = f"remotion_v{job.get('rversion', 0) + 1}.mp4"
+        brand = {"name": p.get("brand") or "ShortsClips", "accent": "#FFD84D"}
+        with MOTION_LOCK:
+            rmotion.render(os.path.join(JOBS_DIR, jid), meta["scenes"], tl, dur, job.get("audio"), brand, out,
+                           log=stage(25, 100))
+        job["rversion"] = job.get("rversion", 0) + 1
+        job["clips"] = [{"file": out, "start": 0, "end": dur, "title": meta.get("title") or job["name"], "viral": 0,
+                         "text": "", "hashtags": meta.get("hashtags", []), "description": meta.get("description", ""),
+                         "narration": " ".join(s["text"] for s in tl), "opts": {"voice_mode": job["voice_mode"]}}]
+        job["status"] = "selesai"; log("Selesai! Video siap.", 100)
+        return
+    log("AI menulis kode animasi...", 20)
+    html = motion.write_animation(job["name"], tl, dur, p["aspect"], p["style"], p["notes"], key, log=stage(20, 45),
+                                  photos=job.get("photos"))
+    log("Menguji animasi...", 45)
+    html = _motion_html(jid, html, key, log)
+    _motion_render(jid, html, log, 50)
 
 
 def process_motion_revise(jid, instruction, p):
@@ -567,21 +675,89 @@ def motion_create():
     p = {"topic": f.get("topic", "").strip(), "script": f.get("script", "").strip(), "aspect": f.get("aspect", "9:16"),
          "style": f.get("style", "modern"), "seconds": int(f.get("seconds") or 30), "voice_mode": f.get("voice_mode", "ai"),
          "voice": f.get("voice", "id-ID-ArdiNeural"), "lang": f.get("lang", "id"), "ai_mode": f.get("ai_mode", "code"),
-         "notes": f.get("notes", "").strip()}
+         "notes": f.get("notes", "").strip(), "review": f.get("review") == "1",
+         "engine": "remotion" if f.get("engine") == "remotion" else "code", "brand": f.get("brand", "").strip()[:30]}
+    if p["engine"] == "remotion":
+        if p["voice_mode"] == "upload":
+            return jsonify(error="Mesin Remotion belum mendukung upload narasi; pilih Suara AI atau Tanpa suara"), 400
+        p["aspect"] = "9:16"   # template Remotion saat ini khusus vertikal
+        cfg = load_cfg()
+        if p["brand"] and cfg.get("remotion_brand") != p["brand"]:
+            cfg["remotion_brand"] = p["brand"]; save_cfg(cfg)
+        p["brand"] = p["brand"] or cfg.get("remotion_brand") or "ShortsClips"
+    if f.get("motion_gemini_key", "").strip():   # simpan key Gemini khusus Motion (tidak ikut ke job.json)
+        cfg = load_cfg(); cfg["motion_gemini_key"] = f["motion_gemini_key"].strip(); save_cfg(cfg)
     up = request.files.get("audio")
     if p["voice_mode"] == "upload" and not (up and up.filename):
         return jsonify(error="Pilih file audio narasi"), 400
-    if not (p["topic"] or p["script"] or p["voice_mode"] == "upload"):
+    pics = [x for x in request.files.getlist("photos") if x and x.filename][:20]   # foto untuk digabung ke animasi
+    if not (p["topic"] or p["script"] or p["voice_mode"] == "upload" or pics):
         return jsonify(error="Isi topik atau naskah"), 400
-    jid = uuid.uuid4().hex[:10]; d = os.path.join(JOBS_DIR, jid); os.makedirs(d)
-    if p["voice_mode"] == "upload":
-        p["audio"] = "narasi_" + (secure_filename(up.filename) or "audio.mp3"); up.save(os.path.join(d, p["audio"]))
-    JOBS[jid] = {"id": jid, "kind": "motion", "name": p["topic"] or "Motion graphic", "url": "", "platform": "motion",
-                 "status": "antri", "log": "Menunggu...", "clips": [], "created": time.time(), "motion": p,
-                 "voice_mode": p["voice_mode"], "aspect": p["aspect"]}
-    save_job(jid)
-    threading.Thread(target=process_motion, args=(jid, p), daemon=True).start()
-    return jsonify(id=jid)
+    if pics and len([t for t in p["topic"].splitlines() if t.strip()]) > 1:
+        return jsonify(error="Foto hanya untuk 1 video; untuk batch kosongkan foto"), 400
+    if pics and not p["topic"] and not p["script"]:
+        p["topic"] = "Video dari foto-foto ini"
+    topics = [t.strip() for t in p["topic"].splitlines() if t.strip()] or [""]
+    if p["voice_mode"] == "upload" or p["script"]:
+        topics = [" ".join(topics)]          # naskah/audio sendiri = 1 video
+    if len(topics) > 10:
+        return jsonify(error="Maksimal 10 topik per batch"), 400
+    ids = []
+    for t in topics:
+        q = dict(p, topic=t)
+        jid = uuid.uuid4().hex[:10]; d = os.path.join(JOBS_DIR, jid); os.makedirs(d)
+        if q["voice_mode"] == "upload":
+            q["audio"] = "narasi_" + (secure_filename(up.filename) or "audio.mp3"); up.save(os.path.join(d, q["audio"]))
+        photos = []
+        if pics:
+            pd = os.path.join(d, "photos"); os.makedirs(pd)
+            for i, x in enumerate(pics):
+                raw = os.path.join(pd, f"_raw{i}" + os.path.splitext(x.filename)[1].lower()); x.save(raw)
+                fn = f"foto_{i + 1:02d}.jpg"
+                try:
+                    w, h = motion.prepare_photo(raw, os.path.join(pd, fn))
+                except Exception:
+                    shutil.rmtree(d, ignore_errors=True)
+                    return jsonify(error=f"Foto tidak bisa dibaca: {x.filename}"), 400
+                finally:
+                    os.path.exists(raw) and os.remove(raw)
+                photos.append({"i": i, "file": fn, "name": os.path.splitext(x.filename)[0][:60], "w": w, "h": h})
+        JOBS[jid] = {"photos": photos,"id": jid, "kind": "motion", "name": t or "Motion graphic", "url": "", "platform": "motion",
+                     "status": "antri", "log": "Menunggu giliran..." if len(topics) > 1 else "Menunggu...", "clips": [],
+                     "created": time.time() + len(ids) * 0.001, "motion": q, "voice_mode": q["voice_mode"], "aspect": q["aspect"]}
+        save_job(jid)
+        threading.Thread(target=_motion_slot, args=(jid, q), daemon=True).start()
+        ids.append(jid)
+    return jsonify(id=ids[0], ids=ids, parallel=MOTION_PARALLEL)
+
+
+MOTION_PARALLEL = 2                      # berapa video batch dikerjakan Claude bersamaan
+MOTION_SEM = threading.Semaphore(MOTION_PARALLEL)
+
+
+def _motion_slot(jid, p, fn=None):
+    with MOTION_SEM:
+        (fn or process_motion)(jid, p)
+
+
+@app.route("/api/motion/<jid>/script", methods=["POST"])
+def motion_script(jid):
+    """Simpan naskah hasil revisi pengguna lalu lanjutkan ke suara & animasi."""
+    job = JOBS.get(jid)
+    if not job or job.get("kind") != "motion" or job.get("status") != "naskah" or not job.get("draft"):
+        return jsonify(error="Naskah tidak sedang menunggu revisi"), 400
+    data = request.get_json(silent=True) or {}
+    texts = [str(t).strip() for t in data.get("scenes") or []]
+    scenes = job["draft"].get("scenes") or []
+    if len(texts) != len(scenes) or not all(texts):
+        return jsonify(error="Teks adegan tidak boleh kosong"), 400
+    for sc, t in zip(scenes, texts):
+        sc["text"] = t
+    if str(data.get("title", "")).strip():
+        job["draft"]["title"] = job["name"] = data["title"].strip()
+    job.update(status="antri", log="Menunggu giliran...", progress=15); save_job(jid)
+    threading.Thread(target=_motion_slot, args=(jid, job["motion"], process_motion_continue), daemon=True).start()
+    return jsonify(ok=True)
 
 
 @app.route("/api/motion/<jid>/revise", methods=["POST"])
@@ -606,7 +782,7 @@ def process_motion_rerender(jid):
         key = _motion_key(job["motion"])
         with open(os.path.join(d, f"anim_v{job['version']}.html"), encoding="utf-8") as f: html = f.read()
         job["status"] = "analisis"; log("Menguji animasi...", 2)
-        err = motion.check(html)
+        err = motion.check(html, photos=_photo_paths(jid))
         if err:   # masih error walau sudah diberi pengaman: minta AI memperbaiki (jadi versi baru)
             log(f"Animasi error ({err[:80]}), AI memperbaiki...", 5)
             html = _motion_html(jid, motion.revise_animation(html, "", key, log=lambda m, f=None: log(m), error=err), key, log)
@@ -641,11 +817,537 @@ function loop(now){if(play){let t=s?s.currentTime:(now-t0)/1000;if(!s&&t>=DURATI
 try{renderFrame(Math.min(t,DURATION-0.001))}catch(e){}}requestAnimationFrame(loop)}
 b.onclick=()=>{play=!play;b.textContent=play?'⏸ Jeda':'▶ Putar';if(s){play?s.play():s.pause()}else if(play)t0=performance.now()};
 try{renderFrame(0.5)}catch(e){}requestAnimationFrame(loop)})()</script>"""
-    html = motion.guard(html)
+    html = motion.with_photos(html, _photo_paths(jid))
     page = html.replace("</body>", player + "</body>") if "</body>" in html else html + player
     # kode animasi ditulis AI: tanpa akses jaringan/API (hanya script & style inline + audio narasi)
     return page, 200, {"Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; "
                        "style-src 'unsafe-inline'; media-src 'self'; img-src data: blob:"}
+
+
+# ===== Giant hand miniature: rencana fase + prompt Veo -> upload klip -> timelapse + ASMR =====
+def process_mini_plan(jid, p):
+    job = JOBS[jid]
+    log, stage = _logger(jid)
+    def body():
+        job["status"] = "analisis"; log("Menyusun rencana...", 5)
+        plan = miniature.write_plan(p["subject"], p["phases"], p["lang"], p["notes"], _motion_key(p), log=stage(5, 95))
+        job.update(plan=plan, name=plan["title"]); job["status"] = "selesai"
+        log("Rencana siap. Buat klip tiap fase di Flow (Veo), lalu upload di sini.", 100)
+    _run(jid, body)
+
+
+def process_mini_render(jid, files, sec, audio):
+    job, d = JOBS[jid], os.path.join(JOBS_DIR, jid)
+    log, stage = _logger(jid)
+    def body():
+        job["status"] = "render"
+        v = job.get("version", 0) + 1
+        out = f"miniatur_v{v}.mp4"
+        with MOTION_LOCK:
+            miniature.render([os.path.join(d, f) for f in files], job["plan"]["phases"], os.path.join(d, out), sec, audio,
+                             log=stage(2, 100))
+        pl = job["plan"]
+        job["version"] = v
+        job["clips"] = [{"file": out, "start": 0, "end": clipper.get_duration(os.path.join(d, out)), "title": pl["title"],
+                         "viral": 0, "text": "", "hashtags": pl.get("hashtags", []), "description": pl.get("caption", ""),
+                         "narration": "", "opts": {}}]
+        job["status"] = "selesai"; log("Selesai! Video siap.", 100)
+    _run(jid, body)
+
+
+@app.route("/api/mini/create", methods=["POST"])
+def mini_create():
+    import time
+    f = request.form
+    p = {"subject": f.get("subject", "").strip(), "phases": max(2, min(6, int(f.get("phases") or 3))),
+         "lang": f.get("lang", "id"), "notes": f.get("notes", "").strip(), "ai_mode": f.get("ai_mode", "code")}
+    if not p["subject"]:
+        return jsonify(error="Isi subjek miniatur"), 400
+    jid = uuid.uuid4().hex[:10]; os.makedirs(os.path.join(JOBS_DIR, jid))
+    JOBS[jid] = {"id": jid, "kind": "mini", "name": p["subject"], "url": "", "platform": "miniatur", "status": "antri",
+                 "log": "Menunggu...", "clips": [], "created": time.time(), "mini": p}
+    save_job(jid)
+    threading.Thread(target=process_mini_plan, args=(jid, p), daemon=True).start()
+    return jsonify(id=jid)
+
+
+@app.route("/api/mini/<jid>/render", methods=["POST"])
+def mini_render(jid):
+    job = JOBS.get(jid)
+    if not job or job.get("kind") != "mini" or not job.get("plan"):
+        return jsonify(error="Rencana belum ada"), 400
+    if job["status"] not in ("selesai", "error"):
+        return jsonify(error="Masih diproses"), 400
+    d = os.path.join(JOBS_DIR, jid)
+    ups = [u for u in request.files.getlist("clips") if u and u.filename]
+    if ups:   # klip baru menggantikan yang lama; urutan = urutan nama file (fase 1, 2, 3 ...)
+        ups.sort(key=lambda u: doc.natural_key(u.filename))
+        names = []
+        for i, u in enumerate(ups):
+            n = f"fase_{i + 1:02d}{os.path.splitext(secure_filename(u.filename))[1] or '.mp4'}"
+            u.save(os.path.join(d, n)); names.append(n)
+        job["mini_files"] = names
+    if not job.get("mini_files"):
+        return jsonify(error="Upload klip video tiap fase"), 400
+    sec = float(request.form.get("sec") or 0)
+    audio = request.form.get("audio", "mix")
+    job.update(status="antri", log="Menunggu...", progress=0, mini_opts={"sec": sec, "audio": audio}); save_job(jid)
+    threading.Thread(target=process_mini_render, args=(jid, job["mini_files"], sec, audio), daemon=True).start()
+    return jsonify(ok=True)
+
+
+# ===== Dokumenter panjang: naskah -> (suara CapCut + gambar Flow) -> alignment -> render bertema =====
+DOC_STATE = {}                    # pid -> {"status", "log", "progress"} (proses yang sedang berjalan)
+DOC_LOCK = threading.Lock()       # render berat: satu per satu
+
+
+def _pdir(pid):
+    p = os.path.join(doc.DOCS_DIR, secure_filename(pid))
+    if not os.path.isfile(os.path.join(p, "script.json")):
+        raise FileNotFoundError("Proyek tidak ditemukan")
+    return p
+
+
+def _doc_run(pid, fn, label):
+    st = DOC_STATE[pid] = {"status": "jalan", "log": label, "progress": 0}
+    def log(m, f=None):
+        st["log"] = m
+        if f is not None: st["progress"] = round(f * 100)
+        print(f"[doc {pid}] {m}")
+    def body():
+        try:
+            fn(log)
+            st.update(status="selesai", progress=100)
+        except Exception as e:
+            traceback.print_exc()
+            st.update(status="error", log=str(e))
+    threading.Thread(target=body, daemon=True).start()
+
+
+def _doc_summary(pid):
+    p = os.path.join(doc.DOCS_DIR, pid)
+    s = doc.load(p)
+    out = os.path.join(p, "output")
+    words = sum(len(sc["text"].split()) for sc in s["scenes"])
+    return {"id": pid, "topic": s.get("topic", pid), "aspect": s.get("aspect", "16:9"), "pair": s.get("pair"),
+            "scenes": len(s["scenes"]), "words": words,
+            "images": len(doc.list_images(p)), "voice": os.path.exists(os.path.join(p, "voice.mp3")),
+            "final": os.path.exists(os.path.join(out, "final.mp4")), "theme_used": s.get("theme_used"),
+            "modified": os.path.getmtime(os.path.join(p, "script.json")), "state": DOC_STATE.get(pid)}
+
+
+@app.route("/api/docs")
+def docs_list():
+    os.makedirs(doc.DOCS_DIR, exist_ok=True)
+    ids = [d for d in os.listdir(doc.DOCS_DIR) if os.path.isfile(os.path.join(doc.DOCS_DIR, d, "script.json"))]
+    out = []
+    for i in ids:   # satu proyek dengan script.json rusak tidak boleh membuat seluruh daftar gagal
+        try:
+            out.append(_doc_summary(i))
+        except Exception as e:
+            out.append({"id": i, "topic": f"⚠️ {i} (script.json rusak: {str(e)[:60]})", "scenes": 0, "words": 0, "images": 0,
+                        "voice": False, "final": False, "theme_used": None, "state": None,
+                        "modified": os.path.getmtime(os.path.join(doc.DOCS_DIR, i, "script.json"))})
+    return jsonify(sorted(out, key=lambda x: -x["modified"]))
+
+
+def _doc_pid(topic, short):
+    import time
+    return (secure_filename(topic.lower().replace(" ", "_"))[:40] or "dokumenter") + time.strftime("_%m%d_%H%M") + ("_shorts" if short else "")
+
+
+def _doc_key(mode):
+    """Mesin AI untuk naskah & prompt Dokumenter: Claude Code (default), Claude API, atau Gemini (key Gemini Dokumenter)."""
+    if mode == "gemini":
+        k = load_cfg().get("gemini_key") or os.environ.get("GEMINI_API_KEY")
+        if not k: raise RuntimeError("API key Gemini belum diisi (isi di langkah gambar Gemini di editor Dokumenter)")
+        return "gemini:" + k
+    return (load_cfg().get("api_key") or os.environ.get("ANTHROPIC_API_KEY")) if mode == "api" else "__claude_code__"
+
+
+def _new_doc(topic, o, short, minutes, pair=None, pid=None):
+    """Buat proyek dokumenter baru (naskah ditulis AI di latar belakang). o = pengaturan form.
+    pair = id proyek pasangannya (versi panjang <-> Shorts dari ide yang sama, masing-masing dengan gambar sendiri)."""
+    pid = pid or _doc_pid(topic, short)
+    p = os.path.join(doc.DOCS_DIR, pid)
+    if os.path.exists(p): raise RuntimeError("Proyek dengan nama ini baru saja dibuat, tunggu 1 menit")
+    os.makedirs(os.path.join(p, "images"))
+    doc.save(p, {"id": pid, "topic": topic, "scenes": [], "metadata": {}, "theme": o.get("theme", "auto"), "pair": pair,
+                 "aspect": "9:16" if short else "16:9"})
+    key = _doc_key(o.get("ai_mode"))
+    def work(log):
+        s = doc.generate_script(topic, minutes, o.get("visual", "cartoon"),
+                                int(o.get("images_per_scene") or 1), o.get("hint", ""), key, log=log,
+                                lang=o.get("lang", "en"), fmt=o.get("format", ""), tone=o.get("tone", ""),
+                                aspect="9:16" if short else "16:9", storyboard=o.get("storyboard", ""))
+        if o.get("storyboard"): s["storyboard"] = o["storyboard"]   # disimpan untuk referensi & kolom SFX di editor
+        s.update(id=pid, pair=pair, ai_mode=o.get("ai_mode", "code"),
+                 theme=o.get("theme") if o.get("theme") not in (None, "", "auto") else s.get("theme", "auto"))
+        doc.save(p, s); doc.write_temp_srt(p, s)
+        log(f"Naskah siap: {len(s['scenes'])} adegan", 1)
+    _doc_run(pid, work, "Menulis naskah Shorts..." if short else "Menulis naskah...")
+    return pid
+
+
+def _link(a, b):
+    pa = os.path.join(doc.DOCS_DIR, a); s = doc.load(pa); s["pair"] = b; doc.save(pa, s)
+
+
+@app.route("/api/docs/new", methods=["POST"])
+def docs_new():
+    f = request.form.to_dict()
+    topic = f.get("topic", "").strip()
+    sb = f.get("storyboard", "").strip()
+    if sb:   # storyboard sendiri: 1 proyek, durasi dari timestamp, judul dari baris "..." bila topik kosong
+        if len(sb) > 40000: return jsonify(error="Storyboard terlalu panjang (maks 40.000 huruf)"), 400
+        m = re.search(r'["“]([^"”]{4,80})["”]', sb)
+        topic = topic or (m.group(1) if m else sb.splitlines()[0][:80].strip(" #🎬:"))
+        f["storyboard"] = sb
+        short = f.get("aspect") == "9:16"
+        mins = doc.storyboard_minutes(sb) or float(f.get("minutes") or (1 if short else 10))
+        return jsonify(id=_new_doc(topic, f, short, mins))
+    if not topic: return jsonify(error="Isi topik"), 400
+    aspect = f.get("aspect", "16:9")
+    if aspect == "both":   # 1 ide -> 2 proyek: video panjang 16:9 + Shorts 9:16, naskah & gambar masing-masing
+        long_id, short_id = _doc_pid(topic, False), _doc_pid(topic, True)
+        _new_doc(topic, f, False, float(f.get("minutes") or 10), pair=short_id, pid=long_id)
+        _new_doc(topic, f, True, 1, pair=long_id, pid=short_id)
+        return jsonify(id=long_id, pair=short_id)
+    short = aspect == "9:16"
+    return jsonify(id=_new_doc(topic, f, short, float(f.get("minutes") or (1 if short else 10))))
+
+
+@app.route("/api/docs/<pid>/pair", methods=["POST"])
+def docs_pair(pid):
+    """Dari proyek yang sudah ada: buat versi pasangannya (panjang -> Shorts 9:16, atau sebaliknya)
+    dengan topik & pengaturan yang sama, tapi naskah dan gambar baru sesuai formatnya (tidak memotong video lama)."""
+    p = _pdir(pid); s = doc.load(p)
+    if (DOC_STATE.get(pid) or {}).get("status") == "jalan": return jsonify(error="Masih diproses"), 400
+    if s.get("pair") and os.path.isdir(os.path.join(doc.DOCS_DIR, s["pair"])):
+        return jsonify(id=s["pair"], existed=True)
+    short = s.get("aspect") != "9:16"
+    o = {k: s.get(k) or "" for k in ("visual", "lang", "format", "tone", "theme")}
+    o.update(ai_mode=request.form.get("ai_mode", "code"), images_per_scene=1)
+    try:
+        nid = _new_doc(s.get("topic", pid), o, short, 1 if short else float(request.form.get("minutes") or 10), pair=pid)
+    except RuntimeError as e:
+        return jsonify(error=str(e)), 400
+    _link(pid, nid)
+    return jsonify(id=nid)
+
+
+@app.route("/api/docs/import", methods=["POST"])
+def docs_import():
+    src = request.form.get("folder", "").strip().strip('"')
+    if not os.path.isdir(src): return jsonify(error="Folder tidak ditemukan"), 400
+    voice = request.form.get("voice", "").strip().strip('"') or None
+    if voice and not os.path.isfile(voice): return jsonify(error="File suara tidak ditemukan"), 400
+    pid = secure_filename(os.path.basename(src.rstrip("\\/")).lower().replace(" ", "_")) or "import"
+    if os.path.exists(os.path.join(doc.DOCS_DIR, pid)): return jsonify(error=f"Proyek '{pid}' sudah ada"), 400
+    try:
+        _, err = doc.import_folder(src, pid, request.form.get("topic") or None, voice, lang=request.form.get("lang", "en"))
+    except Exception as e:
+        return jsonify(error=str(e)), 400
+    return jsonify(id=pid, warning=err)
+
+
+@app.route("/api/docs/<pid>", methods=["GET", "DELETE"])
+def docs_get(pid):
+    try:
+        p = _pdir(pid)
+    except FileNotFoundError as e:
+        return jsonify(error=str(e)), 404
+    if request.method == "DELETE":
+        if (DOC_STATE.get(pid) or {}).get("status") == "jalan": return jsonify(error="Masih diproses"), 400
+        shutil.rmtree(p, ignore_errors=True); DOC_STATE.pop(pid, None)
+        return jsonify(ok=True)
+    s = doc.load(p)
+    out = os.path.join(p, "output")
+    files = {f: os.path.exists(os.path.join(out, f)) for f in ("final.mp4", "final.srt", "metadata.txt")}
+    vdur = clipper.get_duration(os.path.join(p, "voice.mp3")) if os.path.exists(os.path.join(p, "voice.mp3")) else None
+    music = next((f for f in os.listdir(p) if f.startswith("music.")), None)
+    return jsonify(script=s, images=doc.list_images(p), voice_duration=vdur, music=music, outputs=files,
+                   problems=doc.validate(p, s) if s["scenes"] else ["Naskah belum ada"], state=DOC_STATE.get(pid),
+                   themes={k: v["label"] for k, v in doc.themes().items()}, visuals=list(doc.VISUAL_STYLES))
+
+
+@app.route("/api/docs/<pid>/script", methods=["POST"])
+def docs_save(pid):
+    p = _pdir(pid); s = doc.load(p); b = request.get_json(force=True)
+    old = [sc["text"] for sc in s["scenes"]]
+    for k in ("scenes", "metadata", "theme", "tighten", "topic", "lang", "subtitles", "transition_sfx", "dynamics", "chapter_cards", "aspect", "visual", "thumbnail_prompt", "thumb_intro"):
+        if k in b: s[k] = b[k]
+    changed = [sc["text"] for sc in s["scenes"]] != old
+    if changed:   # naskah berubah -> alignment lama tidak berlaku
+        s.pop("alignment", None)
+    doc.save(p, s)
+    if changed or not os.path.exists(os.path.join(p, "script.srt")):   # SRT dari CapCut tidak ditimpa
+        doc.write_temp_srt(p, s)
+    return jsonify(ok=True)
+
+
+@app.route("/api/docs/<pid>/tts", methods=["POST"])
+def docs_tts(pid):
+    """Suara AI langsung dari naskah (edge-tts gratis): tanpa CapCut, tanpa SRT."""
+    p = _pdir(pid); s = doc.load(p); voice = request.form.get("voice") or ""
+    if not s["scenes"]: return jsonify(error="Naskah masih kosong"), 400
+    if (DOC_STATE.get(pid) or {}).get("status") == "jalan": return jsonify(error="Masih diproses"), 400
+    rate = request.form.get("rate") or "+0%"
+    key = None
+    if voice.startswith("gemini:"):
+        if request.form.get("gemini_key", "").strip():
+            cfg = load_cfg(); cfg["gemini_key"] = request.form["gemini_key"].strip(); save_cfg(cfg)
+        key = load_cfg().get("gemini_key") or os.environ.get("GEMINI_API_KEY")
+        if not key: return jsonify(error="Suara Gemini butuh Gemini API key (isi di bagian 4 · Gambar, atau aistudio.google.com/apikey)"), 400
+    def work(log):
+        log("Membacakan naskah dengan suara AI...", 0.1)
+        doc.ai_voice(p, s, voice, rate, log, key=key, tone=s.get("tone", ""))
+        log(f"Suara AI siap ({clipper.get_duration(os.path.join(p, 'voice.mp3')):.0f} dtk)", 1)
+    _doc_run(pid, work, "Menyiapkan suara AI...")
+    return jsonify(ok=True)
+
+
+@app.route("/api/docs/<pid>/gemini", methods=["POST"])
+def docs_gemini(pid):
+    """Gambar otomatis lewat Gemini API untuk prompt yang belum punya gambar (bisa dilanjutkan)."""
+    p = _pdir(pid); s = doc.load(p); f = request.form
+    if f.get("gemini_key", "").strip():
+        cfg = load_cfg(); cfg["gemini_key"] = f["gemini_key"].strip(); save_cfg(cfg)
+    key = load_cfg().get("gemini_key") or os.environ.get("GEMINI_API_KEY")
+    if not key: return jsonify(error="Isi Gemini API key dulu (aistudio.google.com/apikey)"), 400
+    if not any(sc.get("prompts") for sc in s["scenes"]): return jsonify(error="Belum ada prompt gambar"), 400
+    if (DOC_STATE.get(pid) or {}).get("status") == "jalan": return jsonify(error="Masih diproses"), 400
+    nos = {int(x) for x in re.findall(r"\d+", f.get("nos", ""))} or None
+    model = f.get("model", "").strip() or load_cfg().get("gemini_model")
+    def work(log):
+        n, fails = doc.gemini_images(p, key, model, nos, workers=int(f.get("workers") or 3), log=log)
+        if fails:
+            raise RuntimeError(f"{n} gambar jadi, {len(fails)} gagal (klik lagi untuk melanjutkan). " + " | ".join(fails[:3]))
+        log(f"Selesai: {n} gambar Gemini terpasang", 1)
+    _doc_run(pid, work, "Menyiapkan Gemini...")
+    return jsonify(ok=True)
+
+
+@app.route("/api/docs/<pid>/srt", methods=["POST"])
+def docs_srt(pid):
+    p = _pdir(pid); up = request.files.get("srt")
+    if not up or not up.filename.lower().endswith(".srt"): return jsonify(error="Pilih file .srt"), 400
+    tmp = os.path.join(p, "_upload.srt"); up.save(tmp)
+    try:
+        s = doc.load(p); msg = doc.replace_from_srt(p, s, tmp); doc.save(p, s)
+    except Exception as e:
+        return jsonify(error=str(e)), 400
+    finally:
+        if os.path.exists(tmp): os.remove(tmp)
+    return jsonify(ok=True, message=msg)
+
+
+# ===== Ekstensi Chrome "Flow Importer": ambil batch prompt & terima gambar hasil Google Flow =====
+@app.route("/api/flow/projects")
+def flow_projects():
+    out = []
+    for d in sorted(os.listdir(doc.DOCS_DIR), key=lambda x: -os.path.getmtime(os.path.join(doc.DOCS_DIR, x))) if os.path.isdir(doc.DOCS_DIR) else []:
+        try:
+            s = doc.load(os.path.join(doc.DOCS_DIR, d))
+        except Exception:
+            continue
+        items = doc.prompt_items(s)
+        if items:
+            done = sum(1 for _, i, j, _ in items if len(s["scenes"][i].get("images") or []) > j)
+            ti = doc.thumb_item(s)
+            kind = "📱 Shorts" if s.get("aspect") == "9:16" else "🖥️ Panjang"   # judul Shorts & video panjang bisa sama
+            out.append({"id": d, "topic": f"{kind} · {s.get('topic', d)}", "total": len(items) + bool(ti), "done": done + bool(ti and ti[2])})
+    return jsonify(out)
+
+
+@app.route("/api/flow/<pid>/manifest")
+def flow_manifest(pid):
+    s = doc.load(_pdir(pid))
+    ti = doc.thumb_item(s)   # thumbnail = nomor 0, dibuat paling dulu
+    pair = s.get("pair") if s.get("pair") and os.path.isfile(os.path.join(doc.DOCS_DIR, s.get("pair") or "", "script.json")) else None
+    return jsonify(aspect=s.get("aspect", "16:9"), pair=pair, items=([{"no": 0, "scene": 0, "prompt": ti[1], "has_image": ti[2]}] if ti else []) + [
+        {"no": no, "scene": i + 1, "prompt": p, "has_image": len(s["scenes"][i].get("images") or []) > j}
+        for no, i, j, p in doc.prompt_items(s)])
+
+
+@app.route("/api/flow/<pid>/import", methods=["POST"])
+def flow_import(pid):
+    import base64
+    p = _pdir(pid); b = request.get_json(force=True)
+    try:
+        no = int(b["no"]); data = base64.b64decode(b["data"].split(",")[-1])
+        ext = "png" if "png" in (b.get("type") or "") else "webp" if "webp" in (b.get("type") or "") else "jpg"
+        scene, name = doc.set_prompt_image(p, no, data, ext)
+    except Exception as e:
+        return jsonify(error=str(e)), 400
+    return jsonify(ok=True, scene=scene, file=name)
+
+
+@app.route("/api/docs/<pid>/reprompt", methods=["POST"])
+def docs_reprompt(pid):
+    p = _pdir(pid); s = doc.load(p); f = request.form
+    if (DOC_STATE.get(pid) or {}).get("status") == "jalan": return jsonify(error="Masih diproses"), 400
+    idxs = doc.parse_scenes(f.get("scenes", ""), len(s["scenes"]))
+    if not idxs: return jsonify(error="Nomor adegan tidak valid"), 400
+    key = _doc_key(f.get("ai_mode") or s.get("ai_mode"))
+    def work(log):
+        s2 = doc.regen_prompts(doc.load(p), idxs, f.get("visual") or None, f.get("images_per_scene") or None, key, log=log)
+        if f.get("clear") == "1":   # gaya berubah: gambar lama adegan itu dihapus agar dibuat ulang
+            for i in idxs:
+                for im in s2["scenes"][i].get("images") or []:
+                    src = os.path.join(p, "images", im)
+                    if os.path.isfile(src): os.remove(src)
+                s2["scenes"][i]["images"] = []
+        doc.save(p, s2)
+        log(f"Prompt gambar baru siap untuk {len(idxs)} adegan", 1)
+    _doc_run(pid, work, "Menulis ulang prompt gambar...")
+    return jsonify(ok=True, n=len(idxs))
+
+
+@app.route("/api/docs/<pid>/prompts")
+def docs_prompts(pid):
+    return jsonify(doc.prompt_batches(doc.load(_pdir(pid)), int(request.args.get("size", 8))))
+
+
+@app.route("/api/docs/<pid>/voice", methods=["POST"])
+def docs_voice(pid):
+    p = _pdir(pid); up = request.files.get("voice")
+    if not up or not up.filename: return jsonify(error="Pilih file suara"), 400
+    tmp = os.path.join(p, "_upload_" + secure_filename(up.filename)); up.save(tmp)
+    try:   # mp3/wav/m4a/mp4 apa pun -> voice.mp3
+        clipper.run(["ffmpeg", "-y", "-v", "error", "-i", tmp, "-vn", "-c:a", "libmp3lame", "-b:a", "192k", os.path.join(p, "voice.mp3")])
+    finally:
+        os.remove(tmp)
+    s = doc.load(p); s.pop("alignment", None); doc.save(p, s)
+    return jsonify(ok=True, duration=clipper.get_duration(os.path.join(p, "voice.mp3")))
+
+
+@app.route("/api/docs/<pid>/music", methods=["POST", "DELETE"])
+def docs_music(pid):
+    p = _pdir(pid)
+    for f in os.listdir(p):
+        if f.startswith("music."): os.remove(os.path.join(p, f))
+    if request.method == "POST":
+        up = request.files.get("music")
+        if not up or not up.filename: return jsonify(error="Pilih file musik"), 400
+        up.save(os.path.join(p, "music" + os.path.splitext(up.filename)[1].lower()))
+    return jsonify(ok=True)
+
+
+@app.route("/api/docs/<pid>/images", methods=["POST"])
+def docs_images(pid):
+    p = _pdir(pid); d = os.path.join(p, "images"); os.makedirs(d, exist_ok=True)
+    n = 0
+    for up in request.files.getlist("images"):
+        fn = secure_filename(up.filename or "")
+        if fn.lower().endswith(doc.VID_EXT):   # klip animasi: nama sama dgn gambar, atau nomor prompt di nama (mis. "003.mp4")
+            stem = os.path.splitext(fn)[0]
+            if not any(os.path.splitext(x)[0] == stem for x in os.listdir(d)):
+                m = re.search(r"\d+", stem)
+                if not m: continue
+                stem = f"flow_{int(m.group()):03d}"
+            up.save(os.path.join(d, stem + os.path.splitext(fn)[1].lower())); n += 1
+        elif fn.lower().endswith(doc.IMG_EXT):
+            up.save(os.path.join(d, fn)); n += 1
+    s = doc.load(p)
+    warn = None
+    if not any(sc.get("images") for sc in s["scenes"]):   # belum dipetakan: coba bagi rata otomatis
+        warn = doc.auto_map(s, doc.list_images(p)); doc.save(p, s)
+    return jsonify(ok=True, added=n, warning=warn)
+
+
+@app.route("/api/docs/<pid>/anim")
+def docs_anim(pid):
+    p = _pdir(pid)
+    items = doc.anim_prompts(doc.load(p), p)
+    return jsonify(items=[{"no": n, "image": im, "prompt": pr, "clip": c} for n, im, pr, c in items],
+                   clips=sum(1 for *_, c in items if c))
+
+
+@app.route("/api/docs/<pid>/images/<name>", methods=["DELETE"])
+def docs_image_del(pid, name):
+    p = _pdir(pid); name = secure_filename(name)
+    path = os.path.join(p, "images", name)
+    if os.path.exists(path): os.remove(path)
+    s = doc.load(p)
+    for sc in s["scenes"]:
+        sc["images"] = [x for x in sc.get("images") or [] if x != name]
+    doc.save(p, s)
+    return jsonify(ok=True)
+
+
+@app.route("/api/docs/<pid>/map", methods=["POST"])
+def docs_map(pid):
+    """{"order": [file...], "auto": true} = urutan baru lalu bagi rata; {"scenes": [[file...], ...]} = manual."""
+    p = _pdir(pid); s = doc.load(p); b = request.get_json(force=True)
+    if b.get("scenes") is not None:
+        for sc, imgs in zip(s["scenes"], b["scenes"]): sc["images"] = imgs
+        err = None
+    else:
+        order = b.get("order") or doc.list_images(p, b.get("sort", "name"))
+        err = doc.auto_map(s, order)
+    doc.save(p, s)
+    return jsonify(ok=not err, error=err)
+
+
+@app.route("/api/docs/<pid>/render", methods=["POST"])
+def docs_render(pid):
+    p = _pdir(pid); s = doc.load(p)
+    if (DOC_STATE.get(pid) or {}).get("status") == "jalan": return jsonify(error="Masih diproses"), 400
+    probs = doc.validate(p, s)
+    if probs: return jsonify(error="Belum bisa render:\n- " + "\n- ".join(probs[:12])), 400
+    theme = request.form.get("theme") or s.get("theme") or "auto"
+    music = next((os.path.join(p, f) for f in os.listdir(p) if f.startswith("music.")), None)
+    def work(log):
+        with DOC_LOCK:
+            doc.render(p, theme, music, log=log)
+    _doc_run(pid, work, "Menunggu giliran render...")
+    return jsonify(ok=True)
+
+
+@app.route("/api/docs/<pid>/shorts", methods=["POST"])
+def docs_shorts(pid):
+    """Potong video dokumenter jadi Shorts 9:16 memakai timing kata hasil alignment (tanpa Whisper ulang)."""
+    import time
+    p = _pdir(pid); final = os.path.join(p, "output", "final.mp4")
+    if not os.path.exists(final): return jsonify(error="Render video dulu"), 400
+    with open(os.path.join(p, "words.json"), encoding="utf-8") as f: words = json.load(f)
+    jid = uuid.uuid4().hex[:10]; d = os.path.join(JOBS_DIR, jid); os.makedirs(d)
+    src = os.path.join(d, "source_final.mp4"); shutil.copy2(final, src)
+    chunks = doc._chunks(words, 14)
+    s = doc.load(p); lang = doc.lang_of(s)
+    tr = {"language": lang, "words": [{"start": w["start"], "end": w["end"], "word": w["word"]} for w in words],
+          "segments": [{"start": c[0]["start"], "end": c[-1]["end"], "text": " ".join(w["word"] for w in c)} for c in chunks]}
+    with open(os.path.join(d, "transcript.json"), "w", encoding="utf-8") as f: json.dump(tr, f, ensure_ascii=False)
+    f_ = request.form
+    opts = dict(DEFAULT_OPTS, n_clips=int(f_.get("n_clips") or 4), min_len=30, max_len=58, language=lang,
+                ai_mode=f_.get("ai_mode", "code"), transcript_ready=True, frame=f_.get("frame", "auto"))
+    JOBS[jid] = {"id": jid, "kind": "shorts", "name": s.get("topic", pid) + " (Shorts)", "url": "", "platform": "upload",
+                 "status": "antri", "log": "Menunggu...", "clips": [], "created": time.time(), "opts": opts}
+    save_job(jid)
+    threading.Thread(target=process, args=(jid, src, opts), daemon=True).start()
+    return jsonify(id=jid)
+
+
+def _nice_name(title, fn, suffix=""):
+    """Nama file unduhan dari judul (bukan clip_01.mp4): karakter terlarang Windows dibuang, maks 80 huruf."""
+    t = re.sub(r'[<>:"/\\|?*\x00-\x1f#]+', " ", title or "")
+    t = re.sub(r"\s+([)\]])", r"\1", re.sub(r"\s+", " ", t)).strip(" .")[:80].strip(" .")
+    return (t + suffix + os.path.splitext(fn)[1]) if t else os.path.basename(fn)
+
+
+@app.route("/docs/<pid>/file/<path:fn>")
+def docs_file(pid, fn):
+    dl = request.args.get("dl") == "1"
+    name = None
+    if dl:
+        s = doc.load(_pdir(pid))
+        titles = (s.get("metadata") or {}).get("titles") or []
+        title = titles[0] if titles else s.get("topic", "").replace("_", " ")
+        base = os.path.basename(fn)
+        suffix = {"final.mp4": "", "final.srt": "", "metadata.txt": " - metadata"}.get(base)
+        if suffix is not None: name = _nice_name(title, base, suffix)
+    return send_from_directory(_pdir(pid), fn, as_attachment=dl, download_name=name)
 
 
 @app.route("/api/jobs")
@@ -656,7 +1358,7 @@ def jobs():
 @app.route("/")
 def index():
     jobs = sorted(JOBS.values(), key=lambda j: j["created"], reverse=True)
-    return render_template("index.html", jobs=jobs, voices=clipper.VOICES, styles=motion.STYLES, has_key=bool(load_cfg().get("api_key") or os.environ.get("ANTHROPIC_API_KEY")))
+    return render_template("index.html", jobs=jobs, voices=clipper.VOICES, styles=motion.STYLES, has_key=bool(load_cfg().get("api_key") or os.environ.get("ANTHROPIC_API_KEY")), has_gemini=bool(load_cfg().get("gemini_key") or os.environ.get("GEMINI_API_KEY")), has_mgemini=bool(load_cfg().get("motion_gemini_key")), gemini_voices=doc.GEMINI_VOICES, rbrand=load_cfg().get("remotion_brand", ""))
 
 
 @app.route("/api/create", methods=["POST"])
@@ -674,6 +1376,11 @@ def create():
         "max_len": int(f.get("max_len", 60)),
         "vertical": f.get("vertical") == "on",
         "face": f.get("face") == "on",
+        "frame": f.get("frame", "auto"),
+        "hook": f.get("hook") == "on",
+        "jumpcut": f.get("jumpcut") == "on",
+        "punch": f.get("punch") == "on",
+        "sfx": f.get("sfx") == "on",
         "subtitles": f.get("subtitles") == "on",
         "sub_color": f.get("sub_color", "kuning"),
         "ai_mode": f.get("ai_mode", "code"),
@@ -688,7 +1395,7 @@ def create():
     }
     if f.get("api_key", "").strip():   # simpan key agar tidak perlu diisi ulang
         cfg = load_cfg(); cfg["api_key"] = f["api_key"].strip()
-        with open(CFG, "w", encoding="utf-8") as fh: json.dump(cfg, fh)
+        save_cfg(cfg)
     src, name = None, opts["url"]
     up = request.files.get("video")
     if up and up.filename:
@@ -711,7 +1418,7 @@ def job(jid):
 
 
 DEFAULT_OPTS = {"model": "small", "language": None, "n_clips": 5, "min_len": 20, "max_len": 60,
-                "vertical": True, "face": True, "subtitles": True, "sub_color": "kuning",
+                "vertical": True, "face": True, "frame": "auto", "hook": True, "jumpcut": True, "punch": True, "sfx": True, "subtitles": True, "sub_color": "kuning",
                 "ai_mode": "code", "ai_model": "claude-sonnet-5-5", "voice_mode": "asli", "voice": "id-ID-ArdiNeural",
                 "credit_text": "", "credit_opacity": 60, "credit_pos": "bawah", "narr_source": "transkrip", "narr_lang": ""}
 
@@ -744,10 +1451,10 @@ def _form_opts(job, f):
     o = dict(DEFAULT_OPTS, **(job.get("opts") or {}))
     for k in ("n_clips", "min_len", "max_len"):
         if f.get(k): o[k] = int(f[k])
-    for k in ("ai_mode", "sub_color", "voice_mode", "voice", "narr_source"):
+    for k in ("ai_mode", "sub_color", "voice_mode", "voice", "narr_source", "frame"):
         if f.get(k): o[k] = f[k]
     if "narr_lang" in f: o["narr_lang"] = f["narr_lang"]   # "" = otomatis (ikut suara)
-    for k in ("vertical", "face", "subtitles"):
+    for k in ("vertical", "face", "hook", "jumpcut", "punch", "sfx", "subtitles"):
         if k in f: o[k] = f[k] in ("on", "true", "1")
     o["renarrate"] = f.get("renarrate") in ("on", "true", "1")
     if "credit_text" in f: o["credit_text"] = f["credit_text"].strip()   # boleh dikosongkan
@@ -774,6 +1481,16 @@ def rerender(jid):
     if not job["clips"]: return jsonify(error="Belum ada klip untuk dirender ulang"), 400
     opts = _form_opts(job, request.form)
     files = request.form.getlist("files")
+    if len(files) == 1 and "hook_text" in request.form:   # teks hook bisa diedit per klip
+        for c in job["clips"]:
+            if c["file"] != files[0]: continue
+            c["hook_text"] = request.form["hook_text"].strip()
+            # geser awal/akhir klip (detik, boleh negatif); batas asli disimpan agar bisa dikembalikan
+            c.setdefault("orig", [c["start"], c["end"]])
+            ts, te = float(request.form.get("trim_start") or 0), float(request.form.get("trim_end") or 0)
+            c["start"] = max(0.0, round(c["orig"][0] + ts, 2))
+            c["end"] = round(max(c["orig"][1] + te, c["start"] + 3), 2)
+            if job.get("duration"): c["end"] = min(c["end"], job["duration"])
     job.update(status="antri", log="Menunggu...", progress=0); save_job(jid)
     threading.Thread(target=process_rerender, args=(jid, opts, files), daemon=True).start()
     return jsonify(ok=True)
@@ -785,15 +1502,171 @@ def delete(jid):
     return jsonify(ok=True)
 
 
+@app.route("/api/job/<jid>/meta/<fn>")
+def clip_meta(jid, fn):
+    job = JOBS.get(jid) or {}
+    c = next((c for c in job.get("clips") or [] if c.get("file") == fn), None)
+    if not c: return jsonify(error="Klip tidak ditemukan"), 404
+    text = clipper.shorts_metadata_text(c)
+    if request.args.get("dl") != "1":
+        return jsonify(text=text)
+    no = f" ({_clip_no(c)})" if len(job["clips"]) > 1 and _clip_no(c) else ""
+    name = _nice_name(c.get("title") or job.get("name"), "metadata.txt", no + " - metadata")
+    return Response(text, mimetype="text/plain; charset=utf-8",
+                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}"})
+
+
+@app.route("/api/job/<jid>/meta", methods=["POST"])
+def clip_meta_ai(jid):
+    """Tulis (ulang) metadata AI untuk semua klip job ini."""
+    job = JOBS.get(jid)
+    if not job or not job.get("clips"): return jsonify(error="Belum ada klip"), 400
+    opts = job.get("opts") or {}
+    key = _shorts_key(opts)
+    try:
+        data = clipper.write_shorts_metadata(job["clips"], _narr_lang(opts) or opts.get("language"), key)
+    except Exception as e:
+        return jsonify(error=f"Gagal membuat metadata: {e}"), 500
+    for c, m in zip(job["clips"], data):
+        c.update(titles=m.get("titles") or [], description=m.get("description", ""), tags=m.get("tags") or [],
+                 hashtags=m.get("hashtags") or c.get("hashtags", []))
+    save_job(jid)
+    return jsonify(ok=True)
+
+
 @app.route("/media/<jid>/<path:fn>")
 def media(jid, fn):
-    return send_from_directory(os.path.join(JOBS_DIR, jid), fn,
-                               as_attachment=request.args.get("dl") == "1")
+    dl = request.args.get("dl") == "1"
+    name = None
+    if dl:
+        job = JOBS.get(jid) or {}
+        clips = job.get("clips") or []
+        c = next((c for c in clips if c.get("file") == fn), None)
+        if c:   # klip: judul klip, tambah nomor bila ada beberapa klip
+            no = f" ({_clip_no(c)})" if len(clips) > 1 and _clip_no(c) else ""
+            name = _nice_name(c.get("title") or c.get("hook_text") or job.get("name"), fn, no)
+        elif job.get("name") and os.path.splitext(fn)[1].lower() in (".mp4", ".mp3", ".m4a", ".webm", ".mkv"):
+            name = _nice_name(job["name"], fn)
+    return send_from_directory(os.path.join(JOBS_DIR, jid), fn, as_attachment=dl, download_name=name)
 
+
+
+# ===== Agen upload YouTube: antrean -> upload Private + jadwal tayang (jam penonton AS) =====
+def _yt_candidates():
+    q = yt.load(); used = {i["file"] for i in q if i["status"] != "batal"}
+    out = []
+    if os.path.isdir(doc.DOCS_DIR):
+        for pid in os.listdir(doc.DOCS_DIR):
+            p = os.path.join(doc.DOCS_DIR, pid); f = os.path.join(p, "output", "final.mp4")
+            if not os.path.exists(f): continue
+            try: s = doc.load(p)
+            except Exception: continue
+            t, d, tags = yt.parse_metadata(os.path.join(p, "output", "metadata.txt"))
+            th = os.path.join(p, s["thumbnail"]) if s.get("thumbnail") else ""
+            out.append({"pid": pid, "kind": "short" if s.get("aspect") == "9:16" else "long", "file": f,
+                        "title": t or s.get("topic", pid), "description": d, "tags": tags, "lang": s.get("lang", "id"),
+                        "ai": yt.needs_ai_label(s.get("visual")), "visual": s.get("visual", ""),
+                        "thumb": th if th and os.path.exists(th) else "", "queued": f in used, "mtime": os.path.getmtime(f)})
+    for hd in [os.path.join(BASE, "hasil")] + list(load_cfg().get("yt_folders") or []):   # + folder video tambahan
+        if not os.path.isdir(hd): continue
+        for n in os.listdir(hd):
+            f = os.path.join(hd, n)
+            if n.lower().endswith(".mp4"):
+                out.append({"pid": "", "kind": "short", "file": f, "title": os.path.splitext(n)[0], "description": "", "ai": False,
+                            "tags": [], "thumb": "",
+                            "lang": "en" if re.fullmatch(r"[\x00-\x7F]+", n) else "id", "queued": f in used, "mtime": os.path.getmtime(f)})
+    return sorted(out, key=lambda x: -x["mtime"])
+
+
+@app.route("/api/yt/status")
+def yt_status():
+    ch, err = None, ""
+    try:
+        if yt.creds(): ch = yt.channel()
+    except Exception as e:
+        err = str(e)[:200]
+    q = sorted(yt.load(), key=lambda i: i["publish_at"])
+    for i in q: i["wib"] = yt.wib(i["publish_at"])
+    return jsonify(folders=load_cfg().get("yt_folders") or [], secret=os.path.exists(yt.SECRET), connected=bool(ch), channel=ch, error=err or yt.STATE["auth_msg"],
+                   queue=q, candidates=_yt_candidates(), running=yt.STATE["running"])
+
+
+@app.route("/api/yt/folders", methods=["POST"])
+def yt_folders():
+    """{"add": "D:\\folder"} / {"remove": "..."}: folder berisi video jadi yang ikut tampil di daftar siap upload."""
+    a = request.get_json(force=True); cfg = load_cfg(); fl = list(cfg.get("yt_folders") or [])
+    if a.get("add"):
+        f = os.path.normpath(a["add"].strip().strip('"'))
+        if not os.path.isdir(f): return jsonify(error="Folder tidak ditemukan"), 400
+        if f not in fl: fl.append(f)
+    if a.get("remove") in fl: fl.remove(a["remove"])
+    cfg["yt_folders"] = fl; save_cfg(cfg)
+    return jsonify(folders=fl)
+
+
+@app.route("/api/yt/connect", methods=["POST"])
+def yt_connect():
+    def body():
+        yt.STATE["auth_msg"] = "Menunggu login Google di tab browser yang terbuka..."
+        try:
+            yt.creds(interactive=True); yt.STATE["auth_msg"] = ""
+        except Exception as e:
+            yt.STATE["auth_msg"] = f"Gagal menghubungkan: {str(e)[:200]}"
+    threading.Thread(target=body, daemon=True).start()
+    return jsonify(ok=True)
+
+
+@app.route("/api/yt/disconnect", methods=["POST"])
+def yt_disconnect():
+    if os.path.exists(yt.TOKEN): os.remove(yt.TOKEN)
+    return jsonify(ok=True)
+
+
+@app.route("/api/yt/queue", methods=["POST"])
+def yt_queue():
+    a = request.get_json(force=True)
+    c = next((x for x in _yt_candidates() if x["file"] == a.get("file")), None)
+    if not c: return jsonify(error="Video tidak ditemukan"), 404
+    item = {k: c[k] for k in ("pid", "kind", "file", "title", "description", "tags", "lang", "thumb", "ai")}
+    if "ai" in a: item["ai"] = bool(a["ai"])
+    for k in ("title", "description", "kind", "publish_at"):
+        if a.get(k): item[k] = a[k]
+    try:
+        it = yt.add(item)
+    except ValueError as e:
+        return jsonify(error=str(e)), 400
+    return jsonify(dict(it, wib=yt.wib(it["publish_at"])))
+
+
+@app.route("/api/yt/<iid>", methods=["DELETE"])
+def yt_remove(iid):
+    try:
+        it = yt.remove(iid)
+    except ValueError as e:
+        return jsonify(error=str(e)), 400
+    return jsonify(ok=True, video_id=(it or {}).get("video_id", ""))
+
+
+@app.route("/api/yt/<iid>/retry", methods=["POST"])
+def yt_retry(iid):
+    yt.update(iid, status="antre", error="")
+    return jsonify(ok=True)
+
+
+@app.route("/api/yt/run", methods=["POST"])
+def yt_run():
+    threading.Thread(target=yt.run_pending, daemon=True).start()
+    return jsonify(ok=True)
+
+
+@app.route("/api/usage")
+def usage():
+    return jsonify(clipper.usage_summary())
 
 if __name__ == "__main__":
     load_jobs()
     threading.Thread(target=agent_loop, daemon=True).start()
+    threading.Thread(target=yt.loop, daemon=True).start()
     # 0.0.0.0 = bisa dibuka dari HP/laptop lain di jaringan Wi-Fi yang sama.
     # Set SHORTSCLIPS_HOST=127.0.0.1 untuk membatasi ke komputer ini saja.
     host = os.environ.get("SHORTSCLIPS_HOST", "0.0.0.0")

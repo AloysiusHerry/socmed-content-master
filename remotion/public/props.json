@@ -1,0 +1,255 @@
+{
+ "audio": "narasi.m4a",
+ "duration": 22.39,
+ "brand": {
+  "name": "ShortsClips",
+  "accent": "#FFD84D"
+ },
+ "scenes": [
+  {
+   "template": "hook",
+   "kicker": "Hitungan sederhana",
+   "title": "Sepuluh ribu sehari, *cukup?*",
+   "start": 0.0,
+   "end": 3.65
+  },
+  {
+   "template": "number",
+   "kicker": "10 ribu × 365 hari",
+   "title": "Setahun jadi *segini*",
+   "value": 3650000,
+   "prefix": "Rp",
+   "label": "Total tabungan setahun",
+   "source": "Rp10.000 × 365 hari",
+   "start": 3.65,
+   "end": 8.83
+  },
+  {
+   "template": "compare",
+   "kicker": "Setahun · tiap hari",
+   "title": "Nabung vs *ngopi*",
+   "label": "Total setahun (Rp)",
+   "items": [
+    {
+     "name": "Nabung 10 ribu",
+     "value": 3650000,
+     "color": "#22c55e"
+    },
+    {
+     "name": "Kopi 25 ribu",
+     "value": 9125000,
+     "color": "#f59e0b"
+    }
+   ],
+   "source": "Rp25.000 × 365 = Rp9.125.000",
+   "start": 8.83,
+   "end": 15.59
+  },
+  {
+   "template": "list",
+   "kicker": "3 langkah",
+   "title": "Biar *konsisten*",
+   "points": [
+    "Sisihkan di awal, bukan sisa",
+    "Pakai rekening terpisah",
+    "Otomatiskan transfernya"
+   ],
+   "start": 15.59,
+   "end": 22.39
+  }
+ ],
+ "words": [
+  {
+   "w": "Nabung",
+   "t": 0.0
+  },
+  {
+   "w": "sepuluh",
+   "t": 0.38
+  },
+  {
+   "w": "ribu",
+   "t": 0.7
+  },
+  {
+   "w": "sehari.",
+   "t": 0.99
+  },
+  {
+   "w": "Kedengarannya",
+   "t": 1.62
+  },
+  {
+   "w": "kecil",
+   "t": 2.18
+  },
+  {
+   "w": "banget,",
+   "t": 2.5
+  },
+  {
+   "w": "kan?",
+   "t": 2.83
+  },
+  {
+   "w": "Tapi",
+   "t": 3.65
+  },
+  {
+   "w": "dalam",
+   "t": 3.95
+  },
+  {
+   "w": "setahun,",
+   "t": 4.22
+  },
+  {
+   "w": "jumlahnya",
+   "t": 4.99
+  },
+  {
+   "w": "jadi",
+   "t": 5.49
+  },
+  {
+   "w": "tiga",
+   "t": 5.75
+  },
+  {
+   "w": "juta",
+   "t": 6.0
+  },
+  {
+   "w": "enam",
+   "t": 6.31
+  },
+  {
+   "w": "ratus",
+   "t": 6.55
+  },
+  {
+   "w": "lima",
+   "t": 6.91
+  },
+  {
+   "w": "puluh",
+   "t": 7.22
+  },
+  {
+   "w": "ribu",
+   "t": 7.51
+  },
+  {
+   "w": "rupiah.",
+   "t": 7.78
+  },
+  {
+   "w": "Bandingkan",
+   "t": 8.83
+  },
+  {
+   "w": "dengan",
+   "t": 9.37
+  },
+  {
+   "w": "beli",
+   "t": 9.6
+  },
+  {
+   "w": "kopi",
+   "t": 9.81
+  },
+  {
+   "w": "dua",
+   "t": 10.09
+  },
+  {
+   "w": "puluh",
+   "t": 10.28
+  },
+  {
+   "w": "lima",
+   "t": 10.5
+  },
+  {
+   "w": "ribu",
+   "t": 10.71
+  },
+  {
+   "w": "tiap",
+   "t": 10.96
+  },
+  {
+   "w": "hari.",
+   "t": 11.23
+  },
+  {
+   "w": "Setahun,",
+   "t": 12.3
+  },
+  {
+   "w": "sembilan",
+   "t": 13.17
+  },
+  {
+   "w": "juta",
+   "t": 13.68
+  },
+  {
+   "w": "lebih",
+   "t": 14.25
+  },
+  {
+   "w": "habis.",
+   "t": 14.54
+  },
+  {
+   "w": "Jadi",
+   "t": 15.59
+  },
+  {
+   "w": "gini",
+   "t": 15.89
+  },
+  {
+   "w": "caranya.",
+   "t": 16.14
+  },
+  {
+   "w": "Sisihkan",
+   "t": 17.08
+  },
+  {
+   "w": "di",
+   "t": 17.52
+  },
+  {
+   "w": "awal,",
+   "t": 17.64
+  },
+  {
+   "w": "pakai",
+   "t": 18.33
+  },
+  {
+   "w": "rekening",
+   "t": 18.62
+  },
+  {
+   "w": "terpisah,",
+   "t": 18.94
+  },
+  {
+   "w": "dan",
+   "t": 19.71
+  },
+  {
+   "w": "otomatiskan",
+   "t": 19.93
+  },
+  {
+   "w": "transfernya.",
+   "t": 20.59
+  }
+ ]
+}

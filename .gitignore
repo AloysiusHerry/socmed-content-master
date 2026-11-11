@@ -7,6 +7,8 @@ __pycache__/
 cache/
 jobs/
 hasil/
+docs/
+fonts/
 ffmpeg/
 ffmpeg.zip
 ffmpeg_tmp/
@@ -14,8 +16,18 @@ ffmpeg_tmp/
 # Rahasia: API key Claude & Pexels disimpan di sini
 config.json
 .env
+cookies.txt
 
 # Lain-lain
 *.log
+logs/
 .DS_Store
 Thumbs.db
+
+# YouTube OAuth (rahasia)
+client_secret*.json
+youtube_token.json
+uploads.json
+
+# Contoh audio hasil uji ElevenLabs
+voiceover/audio/

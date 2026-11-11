@@ -161,7 +161,4 @@ Tulis dalam {bahasa}. Balas HANYA JSON array, tiap item:
         text = msg.content[0].text
     else:
         text = clipper._ask_claude_code(prompt, log=lambda *a: None)
-    m = re.search(r"\[.*\]", text, re.S)
-    if not m:
-        raise RuntimeError("Jawaban AI tidak berisi JSON: " + text[:300])
-    return json.loads(m.group(0))
+    return clipper.loose_json(text, "[")

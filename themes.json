@@ -1,0 +1,447 @@
+{
+ "_info": "Preset tema video dokumenter. Tema baru cukup ditambahkan di sini tanpa mengubah kode. motion: zoom = [awal, akhir] (zoom>=1), moves = gerakan yang diacak per gambar (in, out, pan_left, pan_right, push, pop), shake/jitter = amplitudo goyangan (piksel output), tilt = derajat. grade = filter warna statis (diterapkan SEKALI ke gambar, murah), fx = efek per frame (grain, flicker, vignette; mahal). transitions = [nama xfade, bobot]. subtitle.mode = phrase (kalimat utuh) atau word (kata per kata disorot).",
+ "documentary": {
+  "label": "Documentary",
+  "keywords": [
+   "history",
+   "science",
+   "ancient",
+   "discovery",
+   "planet",
+   "empire",
+   "space",
+   "sejarah",
+   "sains",
+   "kuno",
+   "penemuan",
+   "kerajaan",
+   "luar angkasa",
+   "antariksa"
+  ],
+  "motion": {
+   "zoom": [
+    1.0,
+    1.1
+   ],
+   "moves": [
+    "in",
+    "out",
+    "pan_left",
+    "pan_right"
+   ],
+   "shake": 0,
+   "shake_prob": 0,
+   "jitter": 0,
+   "tilt": 0
+  },
+  "grade": "eq=contrast=1.08:saturation=0.86:brightness=-0.035:gamma=0.97,colorbalance=rs=0.03:gs=0.0:bs=-0.02:rh=-0.02:bh=0.03,vignette=angle=PI/4.5",
+  "fx": "",
+  "transition_sec": 0.7,
+  "transitions": [
+   [
+    "fade",
+    1
+   ]
+  ],
+  "subtitle": {
+   "mode": "phrase",
+   "font": "Segoe UI Semibold",
+   "size": 54,
+   "color": "#FFFFFF",
+   "outline": 3,
+   "shadow": 2,
+   "align": "bottom",
+   "margin_v": 70,
+   "max_words": 8,
+   "uppercase": false
+  }
+ },
+ "wildlife": {
+  "label": "Wildlife / Alam",
+  "keywords": [
+   "nature",
+   "ocean",
+   "animal",
+   "biology",
+   "alam",
+   "laut",
+   "samudra",
+   "hewan",
+   "biologi",
+   "wildlife",
+   "jungle",
+   "rainforest",
+   "predator",
+   "insect",
+   "bird",
+   "shark",
+   "species",
+   "satwa",
+   "hutan",
+   "serangga",
+   "burung",
+   "hiu",
+   "spesies",
+   "rimba"
+  ],
+  "motion": {
+   "zoom": [
+    1.0,
+    1.1
+   ],
+   "moves": [
+    "in",
+    "out",
+    "pan_left",
+    "pan_right"
+   ],
+   "shake": 0,
+   "shake_prob": 0,
+   "jitter": 0,
+   "tilt": 0
+  },
+  "grade": "eq=saturation=1.38:contrast=1.1:brightness=0.02:gamma=1.03,unsharp=5:5:0.8:5:5:0.0,vibrance=intensity=0.25",
+  "fx": "",
+  "transition_sec": 0.35,
+  "transitions": [
+   [
+    "fade",
+    1
+   ]
+  ],
+  "subtitle": {
+   "mode": "word",
+   "font": "Segoe UI Black",
+   "size": 66,
+   "color": "#FFFFFF",
+   "highlight": [
+    "#FFE14D",
+    "#7CFF6B"
+   ],
+   "outline": 6,
+   "shadow": 0,
+   "align": "lower_center",
+   "margin_v": 140,
+   "max_words": 3,
+   "uppercase": true,
+   "pop": true
+  }
+ },
+ "noir": {
+  "label": "Noir / Mystery",
+  "keywords": [
+   "crime",
+   "murder",
+   "mystery",
+   "mafia",
+   "killer",
+   "secret",
+   "dark",
+   "conspiracy",
+   "disappear",
+   "heist",
+   "unsolved",
+   "cult",
+   "kriminal",
+   "pembunuhan",
+   "misteri",
+   "pembunuh",
+   "rahasia",
+   "gelap",
+   "konspirasi",
+   "hilang",
+   "perampokan",
+   "pencurian",
+   "sekte",
+   "penipu"
+  ],
+  "motion": {
+   "zoom": [
+    1.0,
+    1.15
+   ],
+   "moves": [
+    "push",
+    "push",
+    "in",
+    "pan_left",
+    "pan_right"
+   ],
+   "shake": 5,
+   "shake_prob": 0.25,
+   "jitter": 0,
+   "tilt": 0
+  },
+  "grade": "eq=contrast=1.28:saturation=0.55:brightness=-0.035",
+  "fx": "vignette=angle=PI/4.2,noise=alls=7:allf=t",
+  "transition_sec": 0.45,
+  "transitions": [
+   [
+    "fadeblack",
+    0.82
+   ],
+   [
+    "fadewhite",
+    0.18
+   ]
+  ],
+  "flash_sec": 0.1,
+  "subtitle": {
+   "mode": "word",
+   "font": "Segoe UI Black",
+   "size": 62,
+   "color": "#FFFFFF",
+   "highlight": [
+    "#FFD54A"
+   ],
+   "outline": 4,
+   "shadow": 0,
+   "align": "lower_center",
+   "margin_v": 150,
+   "max_words": 4,
+   "uppercase": true,
+   "pop": false
+  }
+ },
+ "archive": {
+  "label": "Archive / Old Film",
+  "keywords": [
+   "war",
+   "ww2",
+   "ww1",
+   "world war",
+   "nazi",
+   "soviet",
+   "1900",
+   "1920",
+   "1940",
+   "vintage",
+   "depression",
+   "titanic",
+   "cold war",
+   "perang",
+   "perang dunia",
+   "kemerdekaan",
+   "penjajahan",
+   "belanda",
+   "jepang",
+   "1945",
+   "1965",
+   "jadul",
+   "zaman dulu",
+   "orde baru"
+  ],
+  "motion": {
+   "zoom": [
+    1.02,
+    1.08
+   ],
+   "moves": [
+    "in",
+    "out",
+    "pan_left",
+    "pan_right"
+   ],
+   "shake": 0,
+   "shake_prob": 0,
+   "jitter": 2.5,
+   "tilt": 0
+  },
+  "grade": "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131,eq=contrast=1.12",
+  "fx": "eq=brightness='0.035*sin(t*21)+0.02*sin(t*7.3)':eval=frame,noise=alls=24:allf=t+u,vignette=angle=PI/3.8,drawbox=x='mod(floor(t*30)*271,iw)':y=0:w=2:h=ih:color=white@0.18:t=fill:enable='lt(mod(n,11),2)',drawbox=x='mod(floor(t*30)*613+400,iw)':y=0:w=1:h=ih:color=black@0.25:t=fill:enable='lt(mod(n,17),3)'",
+  "transition_sec": 0.6,
+  "transitions": [
+   [
+    "fade",
+    0.7
+   ],
+   [
+    "fadewhite",
+    0.3
+   ]
+  ],
+  "subtitle": {
+   "mode": "phrase",
+   "font": "Garamond",
+   "size": 60,
+   "color": "#F3EBD3",
+   "outline": 2,
+   "shadow": 2,
+   "align": "bottom",
+   "margin_v": 70,
+   "max_words": 8,
+   "uppercase": false
+  }
+ },
+ "fun": {
+  "label": "Fun / Ceria",
+  "keywords": [
+   "funny",
+   "cute",
+   "did you know",
+   "facts",
+   "weird",
+   "pets",
+   "cats",
+   "dogs",
+   "fun",
+   "silly",
+   "bizarre",
+   "lucu",
+   "imut",
+   "tahukah kamu",
+   "fakta",
+   "aneh",
+   "unik",
+   "hewan peliharaan",
+   "kucing",
+   "anjing",
+   "seru"
+  ],
+  "motion": {
+   "zoom": [
+    1.0,
+    1.12
+   ],
+   "moves": [
+    "pop",
+    "in",
+    "pan_left",
+    "pan_right",
+    "pop"
+   ],
+   "shake": 0,
+   "shake_prob": 0,
+   "jitter": 0,
+   "tilt": 2
+  },
+  "grade": "eq=saturation=1.32:brightness=0.03:contrast=1.06",
+  "fx": "",
+  "transition_sec": 0.35,
+  "transitions": [
+   [
+    "slideleft",
+    0.3
+   ],
+   [
+    "slideright",
+    0.2
+   ],
+   [
+    "zoomin",
+    0.2
+   ],
+   [
+    "wipeleft",
+    0.15
+   ],
+   [
+    "circleopen",
+    0.15
+   ]
+  ],
+  "subtitle": {
+   "mode": "word",
+   "font": "Segoe UI Black",
+   "size": 66,
+   "color": "#FFFFFF",
+   "highlight": [
+    "#FFE14D",
+    "#4DE8FF",
+    "#FF6FB5"
+   ],
+   "outline": 6,
+   "shadow": 0,
+   "align": "lower_center",
+   "margin_v": 140,
+   "max_words": 3,
+   "uppercase": true,
+   "pop": true
+  }
+ },
+ "lofi": {
+  "label": "Lofi Story (cerita POV)",
+  "keywords": ["pov", "kamu", "cerita", "tabungan", "miliar", "gaji", "invest", "story", "savings", "salary"],
+  "motion": {"zoom": [1.0, 1.06], "moves": ["in", "out", "pan_left", "pan_right"], "shake": 0, "shake_prob": 0, "jitter": 0, "tilt": 0},
+  "grade": "eq=contrast=0.96:saturation=0.85:brightness=0.02:gamma=1.03,colorbalance=rs=0.04:gs=0.01:bs=-0.03:rm=0.03:bm=-0.02,noise=alls=6:allf=0",
+  "fx": "",
+  "transition_sec": 0.9,
+  "transitions": [["fade", 0.8], ["fadeblack", 0.2]],
+  "subtitle": {"mode": "phrase", "font": "Georgia", "size": 54, "color": "#FFF6E6", "outline": 2, "shadow": 2,
+               "align": "bottom", "margin_v": 70, "max_words": 7, "uppercase": false}
+ },
+ "finance": {
+  "label": "Finance Dark (esai ekonomi)",
+  "keywords": ["economy", "inflation", "fed", "debt", "bubble", "stock", "market", "bank", "recession", "interest rate",
+               "ekonomi", "inflasi", "utang", "saham", "pasar", "bank", "resesi", "suku bunga", "pinjol", "rupiah"],
+  "motion": {"zoom": [1.0, 1.08], "moves": ["push", "in", "pan_left", "pan_right"], "shake": 0, "shake_prob": 0, "jitter": 0, "tilt": 0},
+  "grade": "eq=contrast=1.12:saturation=0.8:brightness=-0.04:gamma=0.96,colorbalance=rs=-0.03:bs=0.05:rh=-0.02:bh=0.04,vignette=angle=PI/4",
+  "fx": "",
+  "transition_sec": 0.2,
+  "transitions": [["fade", 0.7], ["fadeblack", 0.3]],
+  "subtitle": {"mode": "phrase", "font": "Segoe UI Semibold", "size": 52, "color": "#FFFFFF", "outline": 3, "shadow": 2,
+               "align": "bottom", "margin_v": 70, "max_words": 7, "uppercase": false}
+ },
+ "toon": {
+  "label": "Toon Story (cerita kartun)",
+  "keywords": [
+   "story",
+   "trick",
+   "loophole",
+   "invention",
+   "why",
+   "how",
+   "cerita",
+   "trik",
+   "penemuan",
+   "kenapa"
+  ],
+  "motion": {
+   "zoom": [
+    1.0,
+    1.1
+   ],
+   "moves": [
+    "in",
+    "pan_left",
+    "pan_right",
+    "out",
+    "pop"
+   ],
+   "shake": 0,
+   "shake_prob": 0,
+   "jitter": 0,
+   "tilt": 0
+  },
+  "grade": "eq=saturation=1.15:contrast=1.05:brightness=0.01",
+  "fx": "",
+  "transition_sec": 0.25,
+  "transitions": [
+   [
+    "fade",
+    0.5
+   ],
+   [
+    "slideleft",
+    0.25
+   ],
+   [
+    "zoomin",
+    0.25
+   ]
+  ],
+  "subtitle": {
+   "mode": "word",
+   "font": "Segoe UI Black",
+   "size": 72,
+   "color": "#FFFFFF",
+   "outline": 6,
+   "shadow": 2,
+   "align": "center",
+   "margin_v": 0,
+   "max_words": 1,
+   "uppercase": false,
+   "pop": true
+  }
+ }
+}

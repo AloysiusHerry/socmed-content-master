@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "ShortsClips Flow Importer",
+  "version": "1.7.0",
+  "description": "Salin batch prompt Dokumenter ShortsClips ke Google Flow, lalu kirim gambar hasilnya ke proyek ShortsClips (pasang otomatis ke adegannya).",
+  "permissions": ["storage", "debugger"],
+  "host_permissions": ["http://localhost:5000/*", "http://127.0.0.1:5000/*"],
+  "background": {"service_worker": "background.js"},
+  "content_scripts": [
+    {"matches": ["https://flow.google.com/*", "https://labs.google/*"], "js": ["content.js"], "css": ["panel.css"], "run_at": "document_idle"}
+  ]
+}
