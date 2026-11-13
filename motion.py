@@ -220,6 +220,26 @@ def timeline_from_audio(audio, lang, log=print):
     return tl, round(clipper.get_duration(audio), 2)
 
 
+def timeline_from_audio_scenes(audio, scenes, lang, log=print):
+    """Narasi luar (mis. ElevenLabs web) yang membacakan naskah adegan: transkripsi untuk waktu per kata, lalu kata-kata
+    dibagi ke adegan sesuai jumlah kata naskah tiap adegan (visual adegan tetap dipakai)."""
+    tr = clipper.transcribe(audio, "small", lang, log)
+    words, dur = tr["words"], round(clipper.get_duration(audio), 2)
+    counts = [max(1, len(sc["text"].split())) for sc in scenes]
+    scale = len(words) / sum(counts) if words else 0
+    tl, i, cum = [], 0, 0
+    for k, (sc, n) in enumerate(zip(scenes, counts)):
+        cum += n
+        j = len(words) if k == len(scenes) - 1 else min(len(words), round(cum * scale))
+        ws = words[i:j]
+        start = tl[-1]["end"] if tl else 0.0
+        end = dur if k == len(scenes) - 1 else (words[j]["start"] if j < len(words) else dur)
+        tl.append({"start": round(start, 2), "end": round(max(end, start + 0.5), 2), "text": sc["text"],
+                   "visual": sc.get("visual", ""), "words": [{"w": w["word"], "t": round(w["start"], 2)} for w in ws]})
+        i = j
+    return tl, dur
+
+
 CARTOON = """INI ANIMASI KARAKTER (bukan infografis). Wajib:
 - Buat fungsi drawCharacter(ctx, x, y, scale, opts) yang dipakai ulang: kepala bulat besar putih dengan outline, mata titik
   yang BERKEDIP berkala, alis yang berubah sesuai emosi (marah/kaget/senang/sombong), mulut kecil yang bergerak saat tokoh itu
@@ -229,8 +249,9 @@ CARTOON = """INI ANIMASI KARAKTER (bukan infografis). Wajib:
   yang bergeser pelan) dan properti cerita (rel, kapal, guci, mesin, dsb) yang ikut bergerak/beraksi.
 - Kamera hidup: zoom pelan ke tokoh, pan ke properti saat disebut, potong cepat antar sudut kira-kira tiap 1,5-3 detik.
 - Ekspresi dramatis saat emosi (wajah memerah ungu ketika marah, uap dari kepala, tanda seru), efek momen twist (shake, kilatan).
-- Caption: HANYA SATU kata yang sedang diucapkan (pakai "words"), besar (~90px), putih tebal outline hitam tebal, di tengah layar
-  sedikit di bawah tengah, efek pop kecil saat berganti. Jangan tampilkan kalimat penuh atau judul besar.
+- Caption: FRASA 3-5 kata (pakai "words"; kelompokkan kata berurutan, ganti frasa sekaligus, JANGAN per kata), ~64px,
+  putih tebal outline hitam tebal, maks 2 baris, di BAGIAN BAWAH layar (pusat teks ±72% tinggi, di atas area tombol Shorts),
+  efek pop kecil saat frasa berganti; kata yang sedang diucapkan boleh berwarna kuning. Jangan tampilkan kalimat penuh.
 """
 
 
@@ -243,8 +264,25 @@ STICKMAN = """INI ANIMASI STICKMAN (bukan infografis). Wajib:
 - Latar putih, properti digambar garis seperti spidol (efek "tergambar" dengan lineDashOffset saat muncul): rumah, uang,
   grafik, mesin, peta, panah. Merah = bahaya/salah, biru = benar/penting.
 - Kamera hidup: zoom pelan, pan ke properti saat disebut, potong antar adegan kira-kira tiap 2-3 detik, efek shake saat twist.
-- Caption: 1-3 kata yang sedang diucapkan (pakai "words"), hitam tebal ~80px dengan highlight stabilo kuning di belakang kata
-  kunci, di bagian bawah tengah. Jangan tampilkan kalimat penuh.
+- Caption: FRASA 3-5 kata (pakai "words"; kelompokkan kata berurutan, ganti frasa sekaligus, JANGAN per kata), hitam tebal
+  ~64px, maks 2 baris, highlight stabilo kuning di belakang kata yang sedang diucapkan, di BAGIAN BAWAH layar (pusat teks ±72%
+  tinggi, di atas area tombol Shorts). Jangan tampilkan kalimat penuh.
+"""
+
+
+HOOK = """HOOK 3 DETIK PERTAMA (paling krusial, penonton global scroll sangat cepat). Wajib:
+- Frame 0 (t=0) SUDAH penuh aksi: objek/tokoh utama besar di tengah, tidak ada layar kosong, fade-in, atau judul pelan.
+- 0-3 detik: minimal 3 perubahan visual (potong/zoom/whip) kira-kira tiap 0,7-1 detik. Keyframe zoom dramatis:
+  punch-in cepat 1.0->1.25 dengan ease-out (~0,25 dtk) tepat pada kata kunci pertama, lalu zoom lambat kontinu (Ken Burns) agar tak pernah diam.
+- Transisi cepat 0,15-0,3 dtk: whip-pan dengan motion blur (gambar ulang beberapa kali bergeser, alpha rendah), flash putih 2-3 frame,
+  atau zoom-through. Tambah camera shake kecil (2-4px) saat momen kejutan.
+- Pertanyaan/klaim hook tampil sebagai teks besar kontras tinggi yang 'meninju' masuk (scale 1.4->1 + overshoot) di detik 0-1.
+- Color grading tajam sepanjang video: kontras tinggi, saturasi kaya tapi bersih, hitam pekat, highlight terang; aksen 1-2 warna
+  mencolok (kuning/merah) untuk hal penting; vignette tipis di tepi agar mata ke tengah. Garis & teks tajam (tanpa blur pada objek utama).
+- PENTING: gaya cepat (punch-in, whip, flash, shake, perubahan tiap <1 dtk) HANYA untuk 0-3 detik pertama.
+- Setelah detik 3: kembali ke tempo normal & tenang. Satu adegan = satu visual yang dibangun perlahan mengikuti narasi;
+  transisi antar adegan halus 0,4-0,6 dtk (crossfade/slide), tanpa whip/flash/shake; boleh zoom lambat halus & gerak kecil
+  supaya tidak beku, tapi jangan ada potongan cepat beruntun.
 """
 
 
@@ -278,7 +316,7 @@ Timeline adegan (detik) beserta narasi dan ide visual. Visual tiap adegan HARUS 
 kata kunci/angka penting dimunculkan tepat saat diucapkan (lihat "words" bila ada):
 {json.dumps(timeline, ensure_ascii=False)[:14000]}
 
-{CARTOON if style == "kartun" else STICKMAN if style == "stickman" else ""}Kualitas yang diharapkan: teks kinetik (kata muncul, memantul, berganti warna mengikuti narasi), angka yang menghitung naik,
+{CARTOON if style == "kartun" else STICKMAN if style == "stickman" else ""}{HOOK}Kualitas yang diharapkan: teks kinetik (kata muncul, memantul, berganti warna mengikuti narasi), angka yang menghitung naik,
 peta/garis/rute yang tergambar sendiri bila relevan, grafik, ikon geometris, transisi geser/zoom yang mulus antar adegan,
 palet & tipografi konsisten, detail halus (grain, partikel, glow) agar terlihat mahal. Jangan hanya slide teks statis.
 Tidak perlu subtitle penuh; tampilkan kata kunci saja.
@@ -395,8 +433,19 @@ def check(html, fps=FPS, photos=None):
             b.close()
 
 
-def render(html, out_path, audio=None, fps=FPS, log=print, photos=None):
-    """Render tiap frame (PNG dari canvas) lalu kirim ke ffmpeg."""
+def _label_filter(label, out_path, H):
+    """drawtext: label channel di paling bawah tengah, putih 30%. Teks lewat file agar tanda baca aman."""
+    tf = out_path + ".label.txt"
+    with open(tf, "w", encoding="utf-8") as f: f.write(label)
+    esc = lambda p: p.replace("\\", "/").replace(":", "\\:")
+    font = "C:/Windows/Fonts/arialbd.ttf"
+    fs = max(18, int(H * 0.022))
+    return tf, (f"drawtext=fontfile='{esc(font)}':textfile='{esc(tf)}':fontsize={fs}:fontcolor=white@0.3:"
+                f"borderw=3:bordercolor=black@0.3:x=(w-text_w)/2:y=h-text_h-{int(H * 0.018)}")
+
+
+def render(html, out_path, audio=None, fps=FPS, log=print, photos=None, label=""):
+    """Render tiap frame (PNG dari canvas) lalu kirim ke ffmpeg. label = teks channel di paling bawah (opacity 30%)."""
     from playwright.sync_api import sync_playwright
     import base64
     with sync_playwright() as p:
@@ -407,6 +456,10 @@ def render(html, out_path, audio=None, fps=FPS, log=print, photos=None):
         cmd = ["ffmpeg", "-y", "-v", "error", "-f", "image2pipe", "-framerate", str(fps), "-c:v", "mjpeg", "-i", "-"]
         if audio:
             cmd += ["-i", audio, "-map", "0:v", "-map", "1:a", "-c:a", "aac", "-b:a", "160k", "-shortest"]
+        tf = None
+        if (label or "").strip():
+            tf, vf = _label_filter(label.strip()[:60], out_path, H)
+            cmd += ["-vf", vf]
         cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-movflags", "+faststart", out_path]
         ff = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
         try:
@@ -426,4 +479,5 @@ def render(html, out_path, audio=None, fps=FPS, log=print, photos=None):
             if ff.poll() is None:
                 ff.kill()
             b.close()
+            if tf and os.path.exists(tf): os.remove(tf)
     return out_path

@@ -182,6 +182,21 @@ FORMATS = {   # format naskah: instruksi struktur
                 "mom), not to show off. Use concrete numbers (ages, balances, monthly auto-debit) the viewer can picture; "
                 "invent a named friend; numbers are illustrative. Never recommend specific products or tickers",
     "versus": "versus comparison: two sides, criteria round by round, honest verdict",
+    "tokoh": "facts told as ONE continuous second-person POV story (\"you\") where the VIEWER is the main character, stuck in "
+             "one tense, specific real-life situation that fits the topic (e.g. a stormy night flight in seat 12A, the last "
+             "train home, a night alone in an old hospital ward). Structure: (1) COLD OPEN, no greeting: day/time + exact "
+             "place + the moment it goes wrong, sensory details, and a fearful thought (\"That wing is going to snap.\"); "
+             "(2) FACT LOOPS, each in its own scene and each one escalating: the character notices something frightening "
+             "or strange -> states the scary assumption a normal person would make -> the reveal (\"But here is the first "
+             "secret engineers hide from you:\", \"The reality?\", \"No. That was...\") giving the real name of the thing, "
+             "one concrete number, and how it actually protects or helps you; then move the plot forward to the next moment; "
+             "(3) RESOLUTION: the situation ends calmly with a small human detail, then ONE big theme sentence that ties all "
+             "the facts together (\"The aviation industry isn't built on bravery. It is built on highly intelligent "
+             "paranoia.\") and a final line about what the viewer never noticed; (4) OUTRO: a like/subscribe line tied to "
+             "one surprising fact from the video, plus one question for the comments. Present tense, short punchy "
+             "sentences, every fact real and documented. Image prompts: show the viewer-character as ONE fixed person "
+             "(age, hair, clothes, one signature detail) described identically in every prompt where they appear, mixing "
+             "POV shots, close-ups of the strange object, and explanatory diagram/cutaway shots for each reveal"
 }
 TONES = {
     "santai": "casual and friendly, like talking to a friend",
@@ -209,19 +224,19 @@ def storyboard_minutes(sb):
     return round(max(ts) / 60, 1) if ts else None
 
 
-def storyboard_plan(sb, lang):
+def storyboard_plan(sb, lang, wpm=None):
     """Target per adegan storyboard dari timestamp "Adegan 4 (01:00 - 01:40)": (nama, detik, kata, jumlah gambar)."""
-    wpm = 130 if lang == "id" else 150
-    rows = []
-    for m in re.finditer(r"(Adegan|Scene)\s*(\d+)\s*\((\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})\)", sb, re.I):
+    wpm = wpm or (130 if lang == "id" else 150)
+    rows = []   # juga "SCENE 3 — Judul (2:00–3:00)" (judul di antara nomor & timestamp, tanda pisah en/em)
+    for m in re.finditer(r"(Adegan|Scene)\s*(\d+)[^\n]*?\((\d{1,2}):(\d{2})\s*[-–—]\s*(\d{1,2}):(\d{2})\)", sb, re.I):
         secs = (int(m.group(5)) * 60 + int(m.group(6))) - (int(m.group(3)) * 60 + int(m.group(4)))
         if secs > 0:
             rows.append((f"{m.group(1)} {m.group(2)}", secs, round(secs * wpm / 60), max(1, round(secs / 10))))
     return rows
 
 
-def storyboard_prompt(sb, lang, style, words, tone):
-    plan = storyboard_plan(sb, lang)
+def storyboard_prompt(sb, lang, style, words, tone, wpm=None):
+    plan = storyboard_plan(sb, lang, wpm)
     table = ("\nREQUIRED LENGTH PER STORYBOARD SCENE (hard requirement, the voiceover must really fill this time):\n" +
              "\n".join(f"- {n}: {s} s -> about {w} words of narration, split into {k} script scenes (one image each)"
                        for n, s, w, k in plan) +
@@ -232,11 +247,11 @@ def storyboard_prompt(sb, lang, style, words, tone):
     return _storyboard_body(sb, lang, style, words, tone) + table
 
 
-def expand_storyboard(scenes, sb, lang, words, ask, parse, log, rounds=2):
+def expand_storyboard(scenes, sb, lang, words, ask, parse, log, rounds=2, wpm=None):
     """Narasi terlalu pendek untuk durasi storyboard -> minta AI memperpanjang (maks `rounds` putaran) sampai >= 85% target.
     AI menerima naskah lengkap + kekurangan kata per adegan storyboard, lalu mengembalikan daftar adegan baru yang utuh."""
-    wpm = 130 if lang == "id" else 150
-    plan = {int(re.sub(r"\D", "", n)): (w, k) for n, s, w, k in storyboard_plan(sb, lang)}
+    wpm = wpm or (130 if lang == "id" else 150)
+    plan = {int(re.sub(r"\D", "", n)): (w, k) for n, s, w, k in storyboard_plan(sb, lang, wpm)}
     count = lambda xs: sum(len(x["text"].split()) for x in xs)
     for r in range(rounds):
         got = count(scenes)
@@ -264,7 +279,7 @@ STORYBOARD (for reference):
 \"\"\"{sb.strip()}\"\"\"
 CURRENT SCRIPT (JSON):
 {json.dumps(scenes, ensure_ascii=False)}
-Return ONLY valid JSON: {{"scenes": [{{"text": "...", "prompts": ["..."], "motion": "...", "chapter": "... or null", "flag": "", "sfx": "", "sb": 1}}]}}"""
+Return ONLY valid JSON: {{"scenes": [{{"text": "...", "prompts": ["..."], "motion": "...", "chapter": "... or null", "num": "", "flag": "", "sfx": "", "sb": 1}}]}}"""
         try:
             m = re.search(r"\{.*\}", ask(prompt, "memperpanjang naskah"), re.S)
             longer = parse(json.loads(m.group(0)).get("scenes", [])) if m else []
@@ -288,13 +303,16 @@ def _storyboard_body(sb, lang, style, words, tone):
                    "bahasa storyboard bila memakai \"lu/gua\"). Tulis angka dan tahun dalam kata seperti diucapkan.",
              "en": "casual, funny spoken ENGLISH, like talking to a friend."}.get(lang, "casual spoken English.")
     return f"""You are the narrator-writer for a YouTube video. The creator already made the STORYBOARD below (visuals,
-character movements and SFX per scene, with timestamps) but it has NO narration yet. Write the narration in {voice}
+character movements and SFX per scene, with timestamps) and may or may not include draft narration. Write the narration in {voice}
+IF a storyboard scene already has narration (NARASI / NARRATION / VO): keep its lines, wording and key facts (light polish only)
+as the core of that scene, then add accurate extra detail around it to reach the length below; keep promises it makes
+(e.g. "number 12 will save you") and any quiz -> answer order. On-screen text lines (TEKS LAYAR) are not narration.
 Narration tone: {TONES.get(tone, "light and humorous, playful jokes (facts stay accurate)")}.
 
 RULES
 - Follow the storyboard EXACTLY: same order, same characters, same segments. Do not add or drop storyboard scenes.
 - Each storyboard scene ("Adegan") becomes 1 OR MORE consecutive script scenes of 20-40 words each, so that one image is
-  shown every ~8-12 seconds. Budget words by the storyboard timestamps (about {130 if lang == "id" else 150} words per minute);
+  shown every ~8-12 seconds. Budget words by the storyboard timestamps (about {round(words / max(storyboard_minutes(sb) or 1, 0.1))} words per minute);
   total about {words} words.
 - The narration must describe/comment on what is happening on screen in that moment (the joke or fact behind the visual),
   so the voice matches the picture. Historical facts must be accurate and well documented; frame legends as legends and put
@@ -313,14 +331,16 @@ STORYBOARD:
 
 
 def generate_script(topic, minutes=10, visual="cartoon", images_per_scene=1, theme_hint="", api_key=None,
-                    model="claude-sonnet-5-5", log=print, lang="en", fmt="", tone="", aspect="16:9", storyboard=""):
-    """Naskah + prompt gambar + metadata YouTube + penanda klaim, dalam SATU permintaan JSON (hemat token).
+                    model="claude-sonnet-5-5", log=print, lang="en", fmt="", tone="", aspect="16:9", storyboard="", wpm=None):
+    """wpm: kecepatan suara yang akan dipakai (CapCut ±200 kata/menit; default suara AI 150 EN / 130 ID).
+    Naskah + prompt gambar + metadata YouTube + penanda klaim, dalam SATU permintaan JSON (hemat token).
     storyboard: storyboard buatan sendiri (visual/gerakan/SFX tanpa narasi) -> AI menulis narasinya mengikuti urutan itu."""
     lang = lang if lang in LANGS else "en"
     if storyboard:
         minutes = storyboard_minutes(storyboard) or minutes
         images_per_scene = 1
-    words = int(minutes * (150 if lang == "en" else 130))   # kata/menit narasi TTS (kata Indonesia lebih panjang)
+    wpm = int(wpm or (150 if lang == "en" else 130))
+    words = int(minutes * wpm)   # kata/menit narasi TTS (kata Indonesia lebih panjang)
     short = minutes < 3
     if short:   # Shorts: ±15 gambar per menit (ganti tiap ±4 dtk, tiap gambar dipecah 2 sudut kamera); pola hook - 3 poin - loop
         n_lo, n_hi, per = max(6, int(words / 14)), max(8, int(words / 10)), "10-14"
@@ -365,6 +385,7 @@ ACCURACY: only state facts that are well documented. If a claim is folklore, ane
 in the narration ("legend says", "some people claim") AND put a short note in that scene's "flag" field.
 For every scene give {images_per_scene} image prompt(s) that visualise exactly what is being said. Each prompt must start with
 this shared style so all images look consistent: "{style}". No text, captions, logos or real celebrities in images.
+When the narration lists several points/reasons/steps, START each point in its own scene and put its number in "num" ("1", "2", ...; empty otherwise).
 Mark the scene where each new chapter starts with a short chapter title (3-6 words) in "chapter" (null otherwise);
 the first scene must have a chapter. Aim for {'3-4' if short else '5-8'} chapters.
 {f'Visual mood hint: {theme_hint}' if theme_hint else ''}
@@ -372,11 +393,11 @@ Return ONLY valid JSON:
 {{"metadata": {{"titles": ["3 different click-worthy but honest titles, max 70 chars"], "description": "2-3 paragraphs, SEO friendly",
 "tags": ["15-25 tags"], "hashtags": ["#3-5"]}}, "thumbnail_prompt": "ONE eye-catching YouTube thumbnail image prompt (same shared style prefix, bold single subject, high contrast, close-up, strong emotion or mystery, empty space for title text, no text in image)",
 "theme": "one of documentary|noir|archive|fun that fits the topic",
-"scenes": [{{"text": "narration", "prompts": ["..."], "motion": "one short English sentence: how this image should animate for image-to-video (what the character does + one camera move)", "chapter": "Chapter title or null", "flag": "claim to verify or empty"}}]}}"""
+"scenes": [{{"text": "narration", "prompts": ["..."], "motion": "one short English sentence: how this image should animate for image-to-video (what the character does + one camera move)", "chapter": "Chapter title or null", "num": "point number or empty", "flag": "claim to verify or empty"}}]}}"""
     if storyboard:   # ganti bagian penulisan bebas dengan aturan storyboard; format JSON & metadata tetap sama
         tail = prompt[prompt.index("HEALTH/FOOD"):]
         tail = tail.replace('"flag": "claim to verify or empty"}', '"flag": "claim to verify or empty", "sfx": "SFX or empty", "sb": storyboard scene number (integer)}')
-        prompt = f"Topic: {topic}\n" + storyboard_prompt(storyboard, lang, style, words, tone) + tail
+        prompt = f"Topic: {topic}\n" + storyboard_prompt(storyboard, lang, style, words, tone, wpm) + tail
     def ask(prompt, what="menulis naskah"):
         if api_key and api_key.startswith("gemini:"):
             import motion
@@ -395,6 +416,7 @@ Return ONLY valid JSON:
                  "chapter": sc.get("chapter") or None, "flag": (sc.get("flag") or "").strip(),
                  "motion": (sc.get("motion") or "").strip(),
                  **({"sfx": sc["sfx"].strip()} if str(sc.get("sfx") or "").strip() else {}),
+                 **({"num": str(sc["num"]).strip().lstrip("#")} if str(sc.get("num") or "").strip() else {}),
                  **({"sb": sc["sb"]} if storyboard and sc.get("sb") is not None else {})}
                 for sc in sc_list if str(sc.get("text") or "").strip()]
 
@@ -407,15 +429,25 @@ Return ONLY valid JSON:
     if not scenes:
         raise RuntimeError("Naskah kosong dari AI")
     if storyboard:
-        scenes = expand_storyboard(scenes, storyboard, lang, words, ask, parse, log)
+        scenes = expand_storyboard(scenes, storyboard, lang, words, ask, parse, log, wpm=wpm)
         for sc in scenes:
             sc.pop("sb", None)
     if short:   # AI kadang menulis terlalu banyak gambar: maks ±18 gambar per menit
         cap_prompts(scenes, max(8, int(18 * minutes)))
-    return {"topic": topic, "lang": lang, "visual": visual, "aspect": aspect, "format": fmt, "tone": tone,
-            "dynamics": "shorts" if short else "sedang", "theme": "toon" if fmt == "storytale" else "finance" if fmt == "macroessay" else "lofi" if fmt == "povstory" else data.get("theme") if data.get("theme") in themes() else "auto",
+    out = {"topic": topic, "lang": lang, "visual": visual, "aspect": aspect, "format": fmt, "tone": tone,
+            "dynamics": "rapi", "theme": "toon" if fmt == "storytale" else "finance" if fmt == "macroessay" else "lofi" if fmt == "povstory" else data.get("theme") if data.get("theme") in themes() else "auto",
             "metadata": data.get("metadata") or {}, "scenes": scenes,
-            "thumbnail_prompt": (data.get("thumbnail_prompt") or "").strip()}
+            "thumbnail_prompt": (data.get("thumbnail_prompt") or "").strip(), "minutes": minutes, "wpm": wpm}
+    if not storyboard and not short:   # AI sering menulis terlalu pendek: perpanjang otomatis (maks 2 putaran)
+        for r in range(2):
+            got = sum(len(x["text"].split()) for x in out["scenes"])
+            if got >= words * 0.85: break
+            log(f"Naskah {got} kata, target {words}: memperpanjang otomatis ({r + 1}/2)...")
+            try:
+                out, _ = expand_script(out, words, api_key, log=log)
+            except Exception as e:
+                log(f"Perpanjangan gagal ({e}); pakai naskah yang ada."); break
+    return out
 
 
 def cap_prompts(scenes, cap):
@@ -483,6 +515,71 @@ Return ONLY JSON: {{"scenes": [{{"scene": 1, "prompts": ["..."]}}]}}"""
     return s
 
 
+def _ask_ai(prompt, api_key, log, timeout=1500, model="claude-sonnet-5-5"):
+    if api_key and api_key.startswith("gemini:"):
+        import motion
+        return motion._ask_gemini(prompt, api_key[7:], log)
+    if api_key and api_key != "__claude_code__":
+        import anthropic
+        msg = anthropic.Anthropic(api_key=api_key).messages.create(
+            model=model, max_tokens=32000, messages=[{"role": "user", "content": prompt}])
+        return "".join(b.text for b in msg.content if b.type == "text")
+    return clipper._ask_claude_code(prompt, log, timeout=timeout)
+
+
+def expand_script(s, target_words, api_key=None, log=print):
+    """Panjangkan naskah yang sudah ada sampai ±target_words. Adegan lama (beserta gambar & prompt-nya) dipertahankan
+    dan urutannya tetap; AI hanya boleh menambah kata di adegan lama dan MENYISIPKAN adegan baru (dengan prompt gambar)."""
+    scenes = s["scenes"]
+    got = sum(len(x["text"].split()) for x in scenes)
+    if got >= target_words * 0.95:
+        return s, 0
+    style = VISUAL_STYLES.get(s.get("visual") or "cartoon", s.get("visual") or "").replace("16:9", s.get("aspect") or "16:9")
+    fmt = FORMATS.get(s.get("format") or "", "")
+    cur = [{"id": i, "text": x["text"], "chapter": x.get("chapter")} for i, x in enumerate(scenes)]
+    prompt = f"""{LANGS.get(s.get('lang') or 'en', LANGS['en'])[0]}
+This YouTube narration script is TOO SHORT: {got} words, but it needs about {target_words} words.
+Expand it to about {target_words} words (add ~{target_words - got} words).
+{f'Story format to keep: {fmt}.' if fmt else ''}
+Rules:
+- Keep EVERY existing scene, in the same order, with its "id". You may lengthen an existing scene's text a little
+  (smoothly, same meaning), but most new words must come from NEW scenes inserted between existing ones ("id": null).
+- New scenes: 20-40 words each, real and documented extra facts, deeper explanations, concrete numbers, vivid sensory
+  moments and tension that fit the story at that point. No filler, no repeating what was already said.
+- If the story has numbered secrets/points, you may add NEW secrets as new loops (each starts its own scene with "num").
+- Keep the last scene(s) (resolution / outro / call to action) at the end.
+- Each NEW scene needs one image prompt starting with this exact style prefix: "{style}", keeping recurring characters
+  described exactly as in the existing story; plus a short English "motion" sentence.
+Return ONLY a JSON array, in final order:
+[{{"id": 0, "text": "..."}}, {{"id": null, "text": "...", "prompts": ["..."], "motion": "...", "chapter": null, "num": "", "flag": ""}}, ...]
+CURRENT SCRIPT:
+{json.dumps(cur, ensure_ascii=False)}"""
+    log(f"AI memperpanjang naskah {got} → ±{target_words} kata...", 0.1)
+    raw = _ask_ai(prompt, api_key, log)
+    m = re.search(r"\[.*\]", raw or "", re.S)
+    if not m:
+        raise RuntimeError("Jawaban AI bukan JSON")
+    items = json.loads(m.group(0))
+    ids = [x.get("id") for x in items if isinstance(x.get("id"), int)]
+    if ids != list(range(len(scenes))):
+        raise RuntimeError("AI mengubah/menghapus urutan adegan lama; coba lagi")
+    out = []
+    for x in items:
+        t = str(x.get("text") or "").strip()
+        if not t: continue
+        if isinstance(x.get("id"), int):
+            sc = dict(scenes[x["id"]]); sc["text"] = t
+            for k in ("start", "end"): sc.pop(k, None)
+        else:
+            sc = {"text": t, "prompts": [p for p in x.get("prompts") or [] if p][:1], "chapter": x.get("chapter") or None,
+                  "flag": (x.get("flag") or "").strip(), "motion": (x.get("motion") or "").strip()}
+            if str(x.get("num") or "").strip(): sc["num"] = str(x["num"]).strip().lstrip("#")
+        out.append(sc)
+    s = dict(s); s["scenes"] = out
+    s.pop("alignment", None)
+    return s, len(out) - len(scenes)
+
+
 def prompt_items(s):
     """Semua prompt bernomor urut seperti di batch Flow: [(no, indeks_adegan, indeks_prompt, prompt)]."""
     out, k = [], 0
@@ -527,6 +624,12 @@ def set_prompt_image(pdir, no, data, ext="jpg"):
         raise RuntimeError(f"Prompt nomor {no} tidak ada")
     _, i, j, _ = item
     name = f"flow_{no:03d}.{ext}"
+    # nomor prompt bisa bergeser setelah adegan disisipkan: jangan timpa gambar yang dipakai adegan/slot lain
+    mine = (s["scenes"][i].get("images") or [None] * (j + 1))[j:j + 1]
+    used = {im for k, sc in enumerate(s["scenes"]) for jj, im in enumerate(sc.get("images") or []) if (k, jj) != (i, j)}
+    n = 1
+    while name in used and name not in mine:
+        n += 1; name = f"flow_{no:03d}_{n}.{ext}"
     os.makedirs(os.path.join(pdir, "images"), exist_ok=True)
     with open(os.path.join(pdir, "images", name), "wb") as f:
         f.write(data)
@@ -1000,7 +1103,29 @@ def _chunks(words, max_words):
 HOOK_COLOR = "#FFE14D"
 
 
-def write_ass(words, st, path, cards=(), hook=0):
+NUM_WORDS = {"pertama": 1, "kedua": 2, "ketiga": 3, "keempat": 4, "kelima": 5, "keenam": 6, "ketujuh": 7,
+             "kedelapan": 8, "kesembilan": 9, "kesepuluh": 10, "first": 1, "second": 2, "third": 3, "fourth": 4,
+             "fifth": 5, "sixth": 6, "seventh": 7, "eighth": 8, "ninth": 9, "tenth": 10}
+_NUM_RE = re.compile(r"^(?:#|nomor |number |no\.? ?)(\d{1,2})\b")
+_ORD_RE = re.compile(r"^(?:(?:dan|and|yang|the|lalu|nah|oke|terus)\W+)*(?:(?:alasan|poin|fakta|cara|tips?|langkah|hal|"
+                     r"rahasia|kebiasaan|reason|point|fact|step|way|tip|thing|secret|habit)\W+)?(?:yang\W+)?("
+                     + "|".join(NUM_WORDS) + r")\b(?!\W+kali)")
+
+
+def scene_num(sc):
+    """Nomor poin adegan: field "num" (diisi AI/pengguna; "-" = matikan), atau tebakan dari awal narasi
+    ("Pertama, ...", "Nomor 3", "Alasan kedua", "#2", "Number 4")."""
+    v = str(sc.get("num") or "").strip()
+    if v == "-": return ""
+    if v: return v.lstrip("#")
+    head = " ".join(sc.get("text", "").lower().split()[:4])
+    m = _NUM_RE.match(head)
+    if m: return m.group(1)
+    m = _ORD_RE.match(head)
+    return str(NUM_WORDS[m.group(1)]) if m else ""
+
+
+def write_ass(words, st, path, cards=(), hook=0, nums=()):
     """cards: [(detik, judul chapter)] -> judul besar di tengah layar ±3 dtk saat chapter baru dimulai.
     hook: jumlah kata pembuka (kalimat hook) yang tampil BESAR di tengah layar, kontras, muncul tepat di kata pertama
     (subtitle biasa untuk kata-kata itu tidak ditampilkan)."""
@@ -1016,6 +1141,7 @@ WrapStyle: 0
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Default,{font},{st.get('size', 54)},{_ass_color(st.get('color', '#FFFFFF'))},&H000000FF,&H00000000,&H90000000,-1,0,0,0,100,100,0,0,1,{st.get('outline', 3)},{st.get('shadow', 2)},{align},120,120,{st.get('margin_v', 70)},1
+Style: Num,Segoe UI Black,{int(H * 0.34)},{_ass_color(HOOK_COLOR)},&H000000FF,&H00000000,&H78000000,-1,0,0,0,100,100,0,0,1,{max(8, W // 130)},6,5,0,0,0,1
 Style: Card,{font},86,&H00FFFFFF,&H000000FF,&H00000000,&H64000000,-1,0,0,0,100,100,2,0,1,4,3,5,160,160,0,1
 Style: Hook,Segoe UI Black,{int(W * 0.09)},{_ass_color(HOOK_COLOR)},&H000000FF,&H00000000,&H64000000,-1,0,0,0,100,100,1,0,1,{max(6, W // 150)},4,5,{W // 13},{W // 13},0,1
 
@@ -1052,7 +1178,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     for t, title in cards:
         txt = esc(title.upper() if st.get("uppercase") else title)
         lines.append(f"Dialogue: 1,{_ts(t, '.')[:-1]},{_ts(t + 3.2, '.')[:-1]},Card,,0,0,0,,"
-                     f"{{\\fad(350,450)\\blur1\\fscx92\\fscy92\\t(0,3200,\\fscx102\\fscy102)}}{txt}")
+                     # pop-up overshoot: 0% -> 115% -> 100% (membal), lalu memudar keluar
+                     f"{{\\fad(0,450)\\blur1\\fscx0\\fscy0\\t(0,200,\\fscx115\\fscy115)\\t(200,360,\\fscx100\\fscy100)}}{txt}")
+    for t, n in nums:   # kartu nomor: "#1" besar di tengah, pop masuk, tampil ±1,6 dtk di awal penjelasannya
+        lines.append(f"Dialogue: 3,{_ts(t, '.')[:-1]},{_ts(t + 1.6, '.')[:-1]},Num,,0,0,0,,"
+                     f"{{\\fad(0,300)\\fscx0\\fscy0\\t(0,180,\\fscx118\\fscy118)\\t(180,320,\\fscx100\\fscy100)}}#{esc(n)}")
     with open(path, "w", encoding="utf-8") as f:
         f.write(header + "\n".join(lines))
 
@@ -1129,6 +1259,9 @@ def recent_themes(limit=10):
 # ---------- render ----------
 
 DYNAMICS = {   # dinamika kamera: panjang tiap "shot" (satu gambar dipecah jadi beberapa sudut kamera) & lama potongan
+    # rapi: 1 gerakan halus per gambar (pan/push ber-ease, tanpa goyang), antar gambar hard cut / zoom match-cut /
+    # slide; whoosh hanya di potongan yang berarti (chapter baru, match-cut, slide)
+    "rapi": {"shot": None, "cut": 0.0, "extra_tr": [], "clean": True},
     "tenang": {"shot": None, "cut": 0.0, "extra_tr": []},
     "sedang": {"shot": 5.5, "cut": 0.25, "extra_tr": [["zoomin", 0.12], ["smoothleft", 0.08], ["smoothright", 0.08]]},
     # shorts: tanpa geser kiri-kanan (layar sempit 9:16 terasa goyang); hanya zoom masuk/keluar pelan
@@ -1167,9 +1300,27 @@ def focus_points(path, k=3):
 
 def _shot_motion(shot, p, rng):
     """Gerakan satu shot. Zoom tinggi aman karena gambar diskalakan 2x (close-up tetap tajam)."""
+    ease = f"(3*{p}*{p}-2*{p}*{p}*{p})"
+    if shot["kind"] == "clean":   # mode rapi: satu gerakan ber-ease + zoom match-cut di ujung/awal bila diminta
+        n, T = shot["n"], 9   # 9 frame = 0,3 dtk untuk ledakan zoom
+        if shot["move"] == "pan":
+            z = "1.14"
+            a, b = (0.44, 0.56) if shot["dir"] > 0 else (0.56, 0.44)
+            if shot["vertical"]:
+                x, y = "(0.5*iw-iw/zoom/2)", f"(({a}+({b - a:.2f})*{ease})*ih-ih/zoom/2)"
+            else:
+                x, y = f"(({a}+({b - a:.2f})*{ease})*iw-iw/zoom/2)", "(0.5*ih-ih/zoom/2)"
+        else:   # push: dorong masuk sangat pelan
+            z = f"(1.03+0.07*{ease})"
+            x, y = "(0.5*iw-iw/zoom/2)", "(0.5*ih-ih/zoom/2)"
+        if shot.get("zin"):    # akhir gambar: zoom melesat ke tengah (match-cut keluar)
+            z = f"({z})*(1+1.2*pow(max(0,(on-{n - T})/{T}),2))"
+            x, y = f"(0.5*iw-iw/zoom/2)*gte(on,{n - T})+({x})*lt(on,{n - T})", f"(0.5*ih-ih/zoom/2)*gte(on,{n - T})+({y})*lt(on,{n - T})"
+        if shot.get("zout"):   # awal gambar: mulai sangat dekat lalu mundur ke normal (match-cut masuk)
+            z = f"({z})*(1+1.2*pow(max(0,1-on/{T}),2))"
+        return z, x, y
     kind, (fx, fy), (gx, gy) = shot["kind"], shot["a"], shot["b"]
     at = lambda u, v: (f"({u:.3f}*iw-iw/zoom/2)", f"({v:.3f}*ih-ih/zoom/2)")
-    ease = f"(3*{p}*{p}-2*{p}*{p}*{p})"
     if kind == "wide":         # pembuka: gambar utuh, masuk pelan ke titik menarik
         z = f"1.0+0.12*{p}"
         x, y = f"((1-{p})*(iw/2-iw/zoom/2)+{p}*({fx:.3f}*iw-iw/zoom/2))", f"((1-{p})*(ih/2-ih/zoom/2)+{p}*({fy:.3f}*ih-ih/zoom/2))"
@@ -1213,9 +1364,12 @@ def _motion(th, rng, n, shot=None):
     else:                    # pop: masuk membesar lalu memantul ke ukuran normal
         z, x, y = f"1.05+0.04*{p}+0.13*exp(-on/7)*cos(on/4)", cx, cy
     amp = 0.0
-    if m.get("shake") and rng.random() < m.get("shake_prob", 0):
+    if shot and shot["kind"] == "clean":   # mode rapi: tanpa goyang
+        pass
+    elif m.get("shake") and rng.random() < m.get("shake_prob", 0):
         amp = m["shake"]
-    amp = max(amp, m.get("jitter", 0))
+    if not (shot and shot["kind"] == "clean"):
+        amp = max(amp, m.get("jitter", 0))
     if amp:
         # goyangan dalam piksel output -> piksel input (input 2x lebih besar)
         k = f"{amp}*iw/zoom/{W}"
@@ -1240,7 +1394,7 @@ def _clip_cmd(clip, out, n, th):
 def _segment_cmd(img, out, n, th, rng, shot=None):
     z, x, y, move = _motion(th, rng, n, shot)
     tilt = th["motion"].get("tilt", 0)
-    use_tilt = tilt and rng.random() < 0.4
+    use_tilt = tilt and rng.random() < 0.4 and not (shot and shot["kind"] == "clean")
     zw, zh = (int(W * 1.05) // 2 * 2, int(H * 1.05) // 2 * 2) if use_tilt else (W, H)
     # warna statis diterapkan SEKALI ke gambar (sebelum zoompan); hanya efek yang berubah per frame (fx) dihitung tiap frame
     vf = [f"scale={W * 2}:{H * 2}:force_original_aspect_ratio=increase", f"crop={W * 2}:{H * 2}", "setsar=1"]
@@ -1270,6 +1424,8 @@ def plan(s, th, seed, pdir=None):
     Dinamika "sedang"/"dinamis": gambar yang tampil lama dipecah jadi beberapa shot (lebar, close-up detail,
     geser antar detail, mundur) dengan potongan cepat, supaya tidak terasa seperti slideshow."""
     dyn = DYNAMICS.get(s.get("dynamics", "sedang"), DYNAMICS["sedang"])
+    if dyn.get("clean"):
+        return plan_clean(s, seed, pdir)
     th = dict(th, transitions=[list(t) for t in th["transitions"]] + dyn["extra_tr"])
     steady = dyn.get("steady")
     if steady:   # buang transisi yang menyapu ke samping
@@ -1315,6 +1471,47 @@ def plan(s, th, seed, pdir=None):
             shot = {"kind": order[j % len(order)], "a": a, "b": b}
             last = j == k - 1
             res.append((im, f_j, tr if last else "fade", td if last else dyn["cut"], shot, last))
+    return res
+
+
+CUT = 0.1   # "hard cut": xfade 3 frame, tetap terlihat instan (1 frame membuat timestamp ffmpeg mundur & video terpotong)
+
+
+def plan_clean(s, seed, pdir=None):
+    """Mode rapi: 1 shot per gambar. Antar gambar:
+    - chapter baru -> hard cut + whoosh (kontras),
+    - sisanya: hard cut tanpa suara (55%), zoom match-cut + whoosh (30%), slide halus ber-ease + whoosh (15%, hanya 16:9).
+    Format tuple sama dengan plan(): (gambar, frame, transisi, durasi, shot, whoosh)."""
+    rng = random.Random(f"{seed}-clean")
+    vertical = s.get("aspect") == "9:16"
+    items = []
+    for sc in s["scenes"]:
+        imgs = sc.get("images") or []
+        d = sc["end"] - sc["start"]
+        for k, im in enumerate(imgs):
+            items.append([im, sc["start"] + d * k / len(imgs), bool(sc.get("chapter")) and k == 0])
+    total = s["alignment"]["duration"]
+    kinds = []
+    for i in range(len(items) - 1):
+        if items[i + 1][2]:
+            kinds.append("chapter")
+        else:
+            r = rng.random()
+            kinds.append("cut" if r < 0.55 else "zoom" if r < 0.85 or vertical else "slide")
+        if i and kinds[-1] == "zoom" and kinds[-2] == "zoom":   # jangan dua match-cut berturut-turut
+            kinds[-1] = "cut"
+    res = []
+    for i, (im, t0, _) in enumerate(items):
+        t1 = items[i + 1][1] if i + 1 < len(items) else total
+        frames = max(int(round(t1 * FPS)) - int(round(t0 * FPS)), 6)
+        k = kinds[i] if i < len(kinds) else None
+        tr, td = (("smoothleft", 0.6) if k == "slide" else ("fade", CUT)) if k else (None, 0)
+        n = frames + (int(round(td * FPS)) if tr else 0)
+        clip = pdir and clip_for(pdir, im)
+        shot = None if clip else {"kind": "clean", "move": rng.choice(["pan", "push", "push"]), "dir": rng.choice([-1, 1]),
+                                  "vertical": vertical, "n": n, "zin": k == "zoom",
+                                  "zout": i > 0 and kinds[i - 1] == "zoom"}
+        res.append((im, frames, tr, td, shot, k in ("chapter", "zoom", "slide")))
     return res
 
 
@@ -1442,7 +1639,9 @@ def render(pdir, theme="auto", music=None, log=print, workers=4, whisper_model=N
     hook = 0
     if short and s.get("hook_caption", True) and s.get("subtitles", True) and words:
         hook = min(len(s["scenes"][0]["text"].split()), 12, len(words))
-    write_ass(words if s.get("subtitles", True) else [], th["subtitle"], os.path.join(out_dir, "subs.ass"), cards, hook)
+    nums = [(sc["start"] + 0.05, n) for sc in s["scenes"] if sc.get("start") is not None and (n := scene_num(sc))] \
+        if s.get("num_cards", True) else []
+    write_ass(words if s.get("subtitles", True) else [], th["subtitle"], os.path.join(out_dir, "subs.ass"), cards, hook, nums)
     thumb = os.path.join(pdir, "images", s["thumbnail"]) if s.get("thumbnail") and s.get("thumb_intro", True) else None
     if thumb and not os.path.isfile(thumb):
         thumb = None
@@ -1474,7 +1673,7 @@ def render(pdir, theme="auto", music=None, log=print, workers=4, whisper_model=N
     if os.path.isdir(FONTS_DIR):
         fontsdir = ":fontsdir=" + os.path.relpath(FONTS_DIR, seg_dir).replace("\\", "/")
     vout = "[vm]" if thumb else "[v]"
-    if s.get("subtitles", True) or cards:
+    if s.get("subtitles", True) or cards or nums:
         f.append(f"{cur}ass=../subs.ass{fontsdir},format=yuv420p,setsar=1{vout}")
     else:   # audio saja: tanpa teks di video (final.srt tetap dibuat untuk CC YouTube)
         f.append(f"{cur}format=yuv420p,setsar=1{vout}")

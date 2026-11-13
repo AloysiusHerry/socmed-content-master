@@ -18,7 +18,7 @@ os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 from flask import Flask, render_template, request, jsonify, send_from_directory, Response
 from urllib.parse import quote
 from werkzeug.utils import secure_filename
-import clipper, research, auto, motion, rmotion, miniature, documentary as doc, youtube_up as yt
+import clipper, natural, research, auto, motion, rmotion, miniature, documentary as doc, youtube_up as yt
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 JOBS_DIR = os.path.join(BASE, "jobs")
@@ -563,12 +563,42 @@ def _motion_html(jid, html, key, log):
     return html
 
 
+MOTION_SFX = {"tipis": 0.14, "sedang": 0.28}   # volume efek suara terhadap narasi
+
+
+def _motion_sfx_audio(jid):
+    """Narasi + efek suara tipis (whoosh tiap ganti adegan, pop saat angka diucapkan). None = pakai audio apa adanya."""
+    job, d = JOBS[jid], os.path.join(JOBS_DIR, jid)
+    vol = MOTION_SFX.get((job.get("motion") or {}).get("sfx", "tipis"))
+    narr = job.get("audio") and os.path.join(d, job["audio"])
+    tl, dur = job.get("timeline") or [], float(job.get("duration") or 0)
+    if not vol or not tl or dur <= 0:
+        return narr
+    ev = [(max(sc["start"] - 0.3, 0), "whoosh", vol) for sc in tl[1:]]
+    for sc in tl:   # pop halus saat angka/nomor diucapkan
+        for w in sc.get("words") or []:
+            if re.search(r"\d", w["w"]): ev.append((w["t"], "pop", vol * 0.6))
+    trk = doc.sfx_track(ev, dur, os.path.join(d, "_sfx.wav"))
+    out = os.path.join(d, "_mix.m4a")
+    if narr:
+        clipper.run(["ffmpeg", "-y", "-v", "error", "-i", narr, "-i", trk, "-filter_complex",
+                     "[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a]", "-map", "[a]",
+                     "-c:a", "aac", "-b:a", "160k", out])
+    else:
+        clipper.run(["ffmpeg", "-y", "-v", "error", "-i", trk, "-c:a", "aac", "-b:a", "160k", out])
+    return out
+
+
 def _motion_render(jid, html, log, lo):
     job, d = JOBS[jid], os.path.join(JOBS_DIR, jid)
     job["status"] = "render"
     out = f"motion_v{job['version']}.mp4"
+    try:
+        audio = _motion_sfx_audio(jid)
+    except Exception as e:   # efek suara gagal: tetap render dengan narasi saja
+        log(f"Efek suara dilewati: {str(e)[:80]}"); audio = job.get("audio") and os.path.join(d, job["audio"])
     with MOTION_LOCK:
-        motion.render(html, os.path.join(d, out), job.get("audio") and os.path.join(d, job["audio"]),
+        motion.render(html, os.path.join(d, out), audio, label=(job.get("motion") or {}).get("label", ""),
                       log=lambda m, p=None: log(m, None if p is None else lo + (100 - lo) * p), photos=_photo_paths(jid))
     m = job.get("meta") or {}
     job["clips"] = [{"file": out, "start": 0, "end": job["duration"], "title": m.get("title") or job["name"], "viral": 0,
@@ -608,7 +638,10 @@ def process_motion(jid, p):
 
 def _motion_voice(jid, p, meta, log):
     job, d = JOBS[jid], os.path.join(JOBS_DIR, jid)
-    if p["voice_mode"] == "ai":
+    if p["voice_mode"] == "eleven_web" and job.get("audio"):   # audio dari ekstensi ElevenLabs
+        log("Mencocokkan suara ElevenLabs dengan naskah...", 18)
+        tl, dur = motion.timeline_from_audio_scenes(os.path.join(d, job["audio"]), meta["scenes"], p["lang"], log)
+    elif p["voice_mode"] == "ai":
         tl, audio, dur = motion.timeline_from_tts(meta["scenes"], p["voice"], d, log)
         job["audio"] = os.path.basename(audio)
     else:
@@ -676,7 +709,9 @@ def motion_create():
          "style": f.get("style", "modern"), "seconds": int(f.get("seconds") or 30), "voice_mode": f.get("voice_mode", "ai"),
          "voice": f.get("voice", "id-ID-ArdiNeural"), "lang": f.get("lang", "id"), "ai_mode": f.get("ai_mode", "code"),
          "notes": f.get("notes", "").strip(), "review": f.get("review") == "1",
-         "engine": "remotion" if f.get("engine") == "remotion" else "code", "brand": f.get("brand", "").strip()[:30]}
+         "engine": "remotion" if f.get("engine") == "remotion" else "code", "brand": f.get("brand", "").strip()[:30],
+         "label": f.get("label", "").strip()[:60],
+         "sfx": f.get("sfx", "tipis") if f.get("sfx", "tipis") in ("tipis", "sedang", "none") else "tipis"}
     if p["engine"] == "remotion":
         if p["voice_mode"] == "upload":
             return jsonify(error="Mesin Remotion belum mendukung upload narasi; pilih Suara AI atau Tanpa suara"), 400
@@ -740,6 +775,52 @@ def _motion_slot(jid, p, fn=None):
         (fn or process_motion)(jid, p)
 
 
+def motion_srt_text(tl, max_words=7):
+    """SRT dari timeline Motion: pakai waktu per kata bila ada (suara AI/upload), selain itu bagi rata per adegan (tanpa suara)."""
+    def ts(x):
+        ms = int(round(max(x, 0) * 1000)); return f"{ms // 3600000:02d}:{ms // 60000 % 60:02d}:{ms // 1000 % 60:02d},{ms % 1000:03d}"
+    cues = []
+    for sc in tl:
+        ws = sc.get("words")
+        if ws:
+            for i in range(0, len(ws), max_words):
+                ch = ws[i:i + max_words]
+                end = ws[i + max_words]["t"] if i + max_words < len(ws) else sc["end"]
+                cues.append((ch[0]["t"], min(end, (ch[-1].get("e") or ch[-1]["t"] + 0.4) + 0.5), " ".join(w["w"] for w in ch)))
+        else:
+            words = sc["text"].split()
+            n = max(1, -(-len(words) // max_words)); step = (sc["end"] - sc["start"]) / n
+            for k in range(n):
+                cues.append((sc["start"] + k * step, sc["start"] + (k + 1) * step, " ".join(words[k * max_words:(k + 1) * max_words])))
+    nl = chr(10)
+    return nl.join(f"{i}{nl}{ts(a)} --> {ts(b)}{nl}{t}{nl}" for i, (a, b, t) in enumerate(cues, 1) if t)
+
+
+@app.route("/motion/<jid>/srt")
+def motion_srt(jid):
+    job = JOBS.get(jid)
+    if not job or not job.get("timeline"): return "Belum ada naskah bertimeline", 404
+    name = secure_filename(job.get("name") or jid) or jid
+    return Response(motion_srt_text(job["timeline"]), mimetype="application/x-subrip",
+                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}.srt"})
+
+
+@app.route("/api/naturalize", methods=["POST"])
+def api_naturalize():
+    """Rapikan bahasa narasi (Claude langganan, cadangan Gemini). Body: {texts:[...], lang}."""
+    data = request.get_json(silent=True) or {}
+    texts = [str(t) for t in data.get("texts") or []]
+    if not texts or len(texts) > 200:
+        return jsonify(error="Tidak ada teks"), 400
+    c = load_cfg()
+    key = c.get("gemini_key") or c.get("motion_gemini_key") or os.environ.get("GEMINI_API_KEY")
+    try:
+        out, engine = natural.naturalize(texts, data.get("lang") or "id", key, log=lambda *a, **k: None)
+    except Exception as e:
+        return jsonify(error=str(e)[:300]), 500
+    return jsonify(texts=out, engine=engine)
+
+
 @app.route("/api/motion/<jid>/script", methods=["POST"])
 def motion_script(jid):
     """Simpan naskah hasil revisi pengguna lalu lanjutkan ke suara & animasi."""
@@ -755,7 +836,48 @@ def motion_script(jid):
         sc["text"] = t
     if str(data.get("title", "")).strip():
         job["draft"]["title"] = job["name"] = data["title"].strip()
+    voice = str(data.get("voice") or "").strip()
+    if voice == "eleven_web":   # naskah disimpan; suara datang dari ekstensi ElevenLabs (/eleven_audio melanjutkan)
+        job["eleven_wait"] = True
+        job.update(log="Menunggu suara dari ekstensi ElevenLabs..."); save_job(jid)
+        return jsonify(ok=True, wait="eleven")
+    job.pop("eleven_wait", None)
+    if voice == "none":
+        job["motion"]["voice_mode"] = job["voice_mode"] = "none"
+    elif voice:
+        job["motion"].update(voice=voice, voice_mode="ai"); job["voice_mode"] = "ai"
     job.update(status="antri", log="Menunggu giliran...", progress=15); save_job(jid)
+    threading.Thread(target=_motion_slot, args=(jid, job["motion"], process_motion_continue), daemon=True).start()
+    return jsonify(ok=True)
+
+
+@app.route("/api/eleven/queue")
+def eleven_queue():
+    """Untuk ekstensi ElevenLabs: Shorts Motion yang naskahnya menunggu (status NASKAH)."""
+    out = [{"id": j["id"], "name": j.get("name", ""), "lang": (j.get("motion") or {}).get("lang", "en"),
+            "text": " ".join(s.get("text", "") for s in j["draft"].get("scenes") or []), "wait": bool(j.get("eleven_wait"))}
+           for j in sorted(JOBS.values(), key=lambda x: (not x.get("eleven_wait"), x.get("created", 0)))
+           if j.get("kind") == "motion" and j.get("status") == "naskah" and j.get("draft")]
+    return jsonify(jobs=out)
+
+
+@app.route("/api/motion/<jid>/eleven_audio", methods=["POST"])
+def motion_eleven_audio(jid):
+    """Terima MP3 dari ekstensi ElevenLabs (base64), lalu lanjutkan job: waktu kata dari audio -> animasi -> render."""
+    import base64
+    job = JOBS.get(jid)
+    if not job or job.get("kind") != "motion" or job.get("status") != "naskah" or not job.get("draft"):
+        return jsonify(error="Job tidak sedang di tahap NASKAH"), 400
+    data = request.get_json(silent=True) or {}
+    try:
+        raw = base64.b64decode(data.get("audio") or "")
+    except Exception:
+        return jsonify(error="Audio rusak"), 400
+    if len(raw) < 2000: return jsonify(error="Audio kosong/terlalu pendek"), 400
+    job["audio"] = "narasi_eleven.mp3"
+    with open(os.path.join(JOBS_DIR, jid, job["audio"]), "wb") as f: f.write(raw)
+    job["motion"]["voice_mode"] = job["voice_mode"] = "eleven_web"; job.pop("eleven_wait", None)
+    job.update(status="antri", log="Suara ElevenLabs diterima, menunggu giliran...", progress=15); save_job(jid)
     threading.Thread(target=_motion_slot, args=(jid, job["motion"], process_motion_continue), daemon=True).start()
     return jsonify(ok=True)
 
@@ -790,6 +912,34 @@ def process_motion_rerender(jid):
     _run(jid, body)
 
 
+def process_motion_revoice(jid, mode, voice):
+    """Render ulang dengan suara/narasi lain. 'none' = animasi sama tanpa audio; 'ai'/'upload' = waktu berubah,
+    jadi kode animasi ditulis ulang mengikuti timeline baru."""
+    job, d = JOBS[jid], os.path.join(JOBS_DIR, jid)
+    log, stage = _logger(jid)
+    def body():
+        p = job["motion"]
+        if mode == "none":
+            job.update(audio=None, voice_mode="none"); p["voice_mode"] = "none"
+            with open(os.path.join(d, f"anim_v{job['version']}.html"), encoding="utf-8") as f: html = f.read()
+            _motion_render(jid, html, log, 5)
+            return
+        key = _motion_key(p)
+        scenes = [{"text": s["text"], "visual": s.get("visual", "")} for s in job["timeline"]]
+        job["status"] = "analisis"
+        if mode == "ai":
+            log("Membuat suara baru...", 3)
+            tl, audio, dur = motion.timeline_from_tts(scenes, voice, d, log)
+            job["audio"] = os.path.basename(audio); p["voice"] = voice
+        else:
+            log("Transkripsi narasi kamu...", 3)
+            tl, dur = motion.timeline_from_audio(os.path.join(d, job["audio"]), p["lang"], log)
+        p["voice_mode"] = job["voice_mode"] = mode
+        meta = dict(job.get("meta") or {}, scenes=scenes)
+        _motion_build(jid, p, key, meta, tl, dur, log, stage)
+    _run(jid, body)
+
+
 @app.route("/api/motion/<jid>/rerender", methods=["POST"])
 def motion_rerender(jid):
     job = JOBS.get(jid)
@@ -797,8 +947,25 @@ def motion_rerender(jid):
         return jsonify(error="Animasi belum ada"), 400
     if job["status"] not in ("selesai", "error"):
         return jsonify(error="Masih diproses"), 400
+    mode = request.form.get("voice_mode", "keep")
+    if mode not in ("keep", "ai", "none", "upload"):
+        return jsonify(error="Pilihan suara tidak dikenal"), 400
+    if mode != "keep" and not job.get("timeline"):
+        return jsonify(error="Timeline naskah tidak ada"), 400
+    if request.form.get("sfx") in ("tipis", "sedang", "none"): job["motion"]["sfx"] = request.form["sfx"]
+    if "label" in request.form: job["motion"]["label"] = request.form["label"].strip()[:60]
+    voice = request.form.get("voice", "").strip() or job["motion"].get("voice") or "en-US-GuyNeural"
+    if mode == "upload":
+        up = request.files.get("audio")
+        if not (up and up.filename): return jsonify(error="Pilih file audio narasi"), 400
+        job["audio"] = "narasi_" + (secure_filename(up.filename) or "audio.mp3")
+        up.save(os.path.join(JOBS_DIR, jid, job["audio"]))
     job.update(status="antri", log="Menunggu...", progress=0); save_job(jid)
-    threading.Thread(target=process_motion_rerender, args=(jid,), daemon=True).start()
+    if mode == "keep":
+        threading.Thread(target=process_motion_rerender, args=(jid,), daemon=True).start()
+    else:
+        threading.Thread(target=_motion_slot, args=(jid, mode, lambda j, m: process_motion_revoice(j, m, voice)),
+                         daemon=True).start()
     return jsonify(ok=True)
 
 
@@ -979,7 +1146,8 @@ def _new_doc(topic, o, short, minutes, pair=None, pid=None):
         s = doc.generate_script(topic, minutes, o.get("visual", "cartoon"),
                                 int(o.get("images_per_scene") or 1), o.get("hint", ""), key, log=log,
                                 lang=o.get("lang", "en"), fmt=o.get("format", ""), tone=o.get("tone", ""),
-                                aspect="9:16" if short else "16:9", storyboard=o.get("storyboard", ""))
+                                aspect="9:16" if short else "16:9", storyboard=o.get("storyboard", ""),
+                                wpm=int(o.get("wpm") or 0) or None)
         if o.get("storyboard"): s["storyboard"] = o["storyboard"]   # disimpan untuk referensi & kolom SFX di editor
         s.update(id=pid, pair=pair, ai_mode=o.get("ai_mode", "code"),
                  theme=o.get("theme") if o.get("theme") not in (None, "", "auto") else s.get("theme", "auto"))
@@ -1075,8 +1243,11 @@ def docs_get(pid):
 def docs_save(pid):
     p = _pdir(pid); s = doc.load(p); b = request.get_json(force=True)
     old = [sc["text"] for sc in s["scenes"]]
-    for k in ("scenes", "metadata", "theme", "tighten", "topic", "lang", "subtitles", "transition_sfx", "dynamics", "chapter_cards", "aspect", "visual", "thumbnail_prompt", "thumb_intro"):
+    for k in ("scenes", "metadata", "theme", "tighten", "topic", "lang", "subtitles", "transition_sfx", "dynamics", "chapter_cards", "num_cards", "aspect", "visual", "thumbnail_prompt", "thumb_intro"):
         if k in b: s[k] = b[k]
+    if "text_backup" in b:   # naskah sebelum "Rapikan bahasa" (null = hapus)
+        if b["text_backup"]: s["text_backup"] = b["text_backup"]
+        else: s.pop("text_backup", None)
     changed = [sc["text"] for sc in s["scenes"]] != old
     if changed:   # naskah berubah -> alignment lama tidak berlaku
         s.pop("alignment", None)
@@ -1202,6 +1373,36 @@ def docs_reprompt(pid):
         log(f"Prompt gambar baru siap untuk {len(idxs)} adegan", 1)
     _doc_run(pid, work, "Menulis ulang prompt gambar...")
     return jsonify(ok=True, n=len(idxs))
+
+
+@app.route("/api/docs/<pid>/expand", methods=["POST"])
+def docs_expand(pid):
+    """Panjangkan naskah ke durasi target. wpm = kecepatan suara (CapCut ±200, suara AI ±150 kata/menit)."""
+    p = _pdir(pid); s = doc.load(p); f = request.form
+    if (DOC_STATE.get(pid) or {}).get("status") == "jalan": return jsonify(error="Masih diproses"), 400
+    mins, wpm = float(f.get("minutes") or 10), int(f.get("wpm") or 150)
+    target = int(mins * wpm)
+    got = sum(len(x["text"].split()) for x in s["scenes"])
+    if got >= target * 0.95: return jsonify(error=f"Naskah sudah {got} kata (±{got / wpm:.1f} menit), tidak perlu diperpanjang"), 400
+    key = _doc_key(s.get("ai_mode"))
+    def work(log):
+        s0 = doc.load(p)
+        s0["text_backup_scenes"] = [dict(x) for x in s0["scenes"]]
+        s2, added = doc.expand_script(s0, target, key, log=log)
+        doc.save(p, s2); doc.write_temp_srt(p, s2)
+        n = sum(len(x["text"].split()) for x in s2["scenes"])
+        log(f"Naskah jadi {n} kata (±{n / wpm:.1f} menit), {added} adegan baru. Buat gambar untuk adegan baru & suara ulang.", 1)
+    _doc_run(pid, work, "AI memperpanjang naskah...")
+    return jsonify(ok=True, target=target)
+
+
+@app.route("/api/docs/<pid>/expand/undo", methods=["POST"])
+def docs_expand_undo(pid):
+    p = _pdir(pid); s = doc.load(p)
+    if not s.get("text_backup_scenes"): return jsonify(error="Tidak ada cadangan"), 400
+    s["scenes"] = s.pop("text_backup_scenes"); s.pop("alignment", None)
+    doc.save(p, s); doc.write_temp_srt(p, s)
+    return jsonify(ok=True)
 
 
 @app.route("/api/docs/<pid>/prompts")

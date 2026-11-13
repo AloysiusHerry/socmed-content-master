@@ -437,9 +437,9 @@
    "color": "#FFFFFF",
    "outline": 6,
    "shadow": 2,
-   "align": "center",
-   "margin_v": 0,
-   "max_words": 1,
+   "align": "bottom",
+   "margin_v": 60,
+   "max_words": 5,
    "uppercase": false,
    "pop": true
   }

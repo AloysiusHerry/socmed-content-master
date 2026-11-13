@@ -26,6 +26,7 @@
       <div class="sec">⚡ Mode otomatis</div>
       <div class="row st"><label>Jeda <input id="scfi-dmin" type="number" min="10" style="width:52px">–<input id="scfi-dmax" type="number" min="10" style="width:52px"> dtk</label>
         <label>Maks/sesi <input id="scfi-max" type="number" min="1" style="width:52px"></label>
+        <label title="Setelah Maks/sesi tercapai: istirahat sekian menit lalu lanjut sendiri. 0 = berhenti.">Istirahat <input id="scfi-rest" type="number" min="0" style="width:46px"> mnt</label>
         <label>Prompt/kiriman <select id="scfi-per"><option value="1">1 (paling aman)</option><option>5</option><option>8</option><option>10</option></select></label></div>
       <label class="row st"><input type="checkbox" id="scfi-pair" checked> Setelah selesai, lanjut otomatis ke proyek pasangannya (Panjang ↔ Shorts)</label>
       <div class="row"><button id="scfi-auto">▶ Mulai otomatis</button><span class="st" id="scfi-auto-st"></span></div>
@@ -155,12 +156,12 @@
   };
 
   // ---------- mode otomatis: ketik prompt -> klik buat -> tunggu gambar baru -> kirim -> jeda acak
-  const DEF = { dmin: 25, dmax: 60, max: 25, per: 1 };
+  const DEF = { dmin: 25, dmax: 60, max: 25, per: 1, rest: 10 };
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   let RUN = false, CLICK_ERR = "";
   (async () => {
     const c = { ...DEF, ...((await store.get("auto")) || {}) };
-    $("scfi-dmin").value = c.dmin; $("scfi-dmax").value = c.dmax; $("scfi-max").value = c.max; $("scfi-per").value = c.per;
+    $("scfi-dmin").value = c.dmin; $("scfi-dmax").value = c.dmax; $("scfi-max").value = c.max; $("scfi-per").value = c.per; $("scfi-rest").value = c.rest;
   })();
   const autoSt = (t, cls = "") => { $("scfi-auto-st").className = "st " + cls; $("scfi-auto-st").textContent = t; };
   const tiles = () => [...document.querySelectorAll("flow-grid-tile-container")].map(t => {
@@ -239,10 +240,11 @@
 
   $("scfi-auto").onclick = async () => {
     if (RUN) { RUN = false; autoSt("Berhenti setelah langkah ini..."); return; }
-    const c = { dmin: Math.max(10, +$("scfi-dmin").value || DEF.dmin), dmax: Math.max(10, +$("scfi-dmax").value || DEF.dmax), max: Math.max(1, +$("scfi-max").value || DEF.max), per: +$("scfi-per").value || 1 };
+    const c = { dmin: Math.max(10, +$("scfi-dmin").value || DEF.dmin), dmax: Math.max(10, +$("scfi-dmax").value || DEF.dmax), max: Math.max(1, +$("scfi-max").value || DEF.max), per: +$("scfi-per").value || 1,
+      rest: Math.max(0, +($("scfi-rest").value === "" ? DEF.rest : $("scfi-rest").value)) };
     if (c.dmax < c.dmin) c.dmax = c.dmin;
     store.set("auto", c).catch(() => {});
-    RUN = true; $("scfi-auto").textContent = "⏸ Jeda"; let made = 0; const doneP = new Set();
+    RUN = true; $("scfi-auto").textContent = "⏸ Jeda"; let made = 0, total = 0, sesi = 1; const doneP = new Set();
     try {
       while (RUN && made < c.max) {
         await loadManifest();
@@ -288,11 +290,23 @@
           if (!got) throw new Error("Gambar batch ini tidak bisa dipasangkan otomatis. Pakai 🔍 Pindai gambar (manual).");
           if (got < batch.length) autoSt(`${got}/${batch.length} terpasang; sisanya dicoba lagi di batch berikutnya.`);
         }
-        if (made >= c.max) { autoSt(`✅ ${made} gambar selesai (batas sesi). Istirahat dulu, lalu Mulai lagi.`, "ok"); break; }
+        if (made >= c.max) {
+          total += made;
+          if (!c.rest) { autoSt(`✅ ${total} gambar selesai (batas sesi). Istirahat dulu, lalu Mulai lagi.`, "ok"); break; }
+          // istirahat otomatis lalu lanjut sesi berikutnya (pakai jam dinding: timer tab latar bisa diperlambat Chrome)
+          const until = Date.now() + c.rest * 60000 * (0.9 + Math.random() * 0.2);
+          while (RUN && Date.now() < until) {
+            const s2 = Math.ceil((until - Date.now()) / 1000);
+            autoSt(`☕ Sesi ${sesi} selesai (${total} gambar). Istirahat, lanjut otomatis dalam ${Math.floor(s2 / 60)}:${String(s2 % 60).padStart(2, "0")}`, "ok");
+            await sleep(1000);
+          }
+          if (!RUN) break;
+          made = 0; sesi++; continue;
+        }
         const wait = (c.dmin + Math.random() * (c.dmax - c.dmin)) * 1000;
         for (let left = wait; left > 0 && RUN; left -= 1000) { autoSt(`✅ ${made} terkirim · kiriman berikutnya dalam ${Math.ceil(left / 1000)} dtk`, "ok"); await sleep(1000); }
       }
-      if (!RUN) autoSt(`Dijeda · ${made} gambar terkirim.`);
+      if (!RUN) autoSt(`Dijeda · ${total + made} gambar terkirim.`);
     } catch (e) { autoSt(e.message, "err"); }
     RUN = false; $("scfi-auto").textContent = "▶ Mulai otomatis";
     try { chrome.runtime.sendMessage({ cmd: "detach" }, () => void chrome.runtime.lastError); } catch { stale(); }

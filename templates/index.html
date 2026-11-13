@@ -199,6 +199,8 @@ table.tq tr{cursor:pointer}table.tq tr:hover td{color:var(--txt);background:#1c1
     <div class="opts">
       <label>🎙️ Suara <select name="voice_mode" id="m-vm"><option value="ai">Suara AI</option><option value="upload">Narasi saya (upload audio)</option><option value="none">Tanpa suara (isi di CapCut)</option></select></label>
       <label id="m-voice">Suara AI <select name="voice">{% for k, v in voices.items() %}<option value="{{k}}">{{v}}</option>{% endfor %}</select></label>
+      <label>🔊 Efek suara <select name="sfx"><option value="tipis" selected>Tipis</option><option value="sedang">Sedang</option><option value="none">Tanpa</option></select></label>
+      <label>🏷️ Label channel <input type="text" name="label" maxlength="60" placeholder="mis. @RykaMediaFortuna" oninput="try{localStorage.mLabel=this.value}catch(e){}"></label>
       <label id="m-audio" style="display:none">File narasi <input type="file" name="audio" accept="audio/*,video/*"></label>
       <label title="Foto dipakai di dalam animasi (Ken Burns, bingkai, teks & sorotan di atasnya). Nama file = petunjuk isi foto; urutan pilih = urutan tampil. Maks 20, hanya untuk 1 video.">🖼️ Foto (opsional) <input type="file" name="photos" accept="image/*" multiple></label>
       <label>🤖 AI <select name="ai_mode" onchange="document.getElementById('m-gkey').style.display=this.value==='gemini'?'':'none'"><option value="code">Claude Code (langganan Pro)</option><option value="gemini">Gemini API (lebih hemat)</option><option value="api">Claude API (berbayar)</option></select></label>
@@ -247,7 +249,8 @@ table.tq tr{cursor:pointer}table.tq tr:hover td{color:var(--txt);background:#1c1
         <label>🗣️ Bahasa narasi <select name="lang"><option value="en">English</option><option value="id">Bahasa Indonesia</option></select></label>
         <label>📐 Format video <select name="aspect" onchange="const sh=this.value==='9:16';this.form.minutes.value=sh?1:10"><option value="16:9">Video panjang 16:9</option><option value="9:16">Shorts / Reels 9:16</option><option value="both">Panjang 16:9 + Shorts 9:16 (gambar masing-masing)</option></select></label>
         <label>Durasi <input type="number" name="minutes" value="10" min="1" max="30" step="0.5"> menit</label>
-        <label>📚 Format naskah <select name="format"><option value="">Bebas (AI pilih)</option><option value="documentary">Dokumenter</option><option value="mystery">Misteri</option><option value="top">Top / hitung mundur</option><option value="chronology">Kronologi</option><option value="folklore">Cerita rakyat / legenda</option><option value="biography">Kisah tokoh</option><option value="howitworks">Cara kerja</option><option value="facts">Fakta aneh</option><option value="health">Kesehatan</option><option value="history">Sejarah penemuan</option><option value="whatif">Bagaimana jika</option><option value="versus">Versus</option><option value="povstory">☕ Cerita POV keuangan (ala Ncek Invest)</option><option value="macroessay">💹 Esai ekonomi makro (Casual Finance)</option><option value="storytale">🔥 Cerita trik / penemuan (twist)</option></select></label>
+        <label title="Menentukan jumlah kata naskah: suara CapCut membaca lebih cepat, jadi butuh naskah lebih panjang">🎙️ Suara nanti pakai <select name="wpm"><option value="">Suara AI ShortsClips (±150/130 kata/mnt)</option><option value="200">CapCut / cepat (±200 kata/mnt)</option></select></label>
+        <label>📚 Format naskah <select name="format"><option value="">Bebas (AI pilih)</option><option value="documentary">Dokumenter</option><option value="mystery">Misteri</option><option value="top">Top / hitung mundur</option><option value="chronology">Kronologi</option><option value="folklore">Cerita rakyat / legenda</option><option value="biography">Kisah tokoh</option><option value="howitworks">Cara kerja</option><option value="facts">Fakta aneh</option><option value="health">Kesehatan</option><option value="history">Sejarah penemuan</option><option value="whatif">Bagaimana jika</option><option value="versus">Versus</option><option value="povstory">☕ Cerita POV keuangan (ala Ncek Invest)</option><option value="macroessay">💹 Esai ekonomi makro (Casual Finance)</option><option value="storytale">🔥 Cerita trik / penemuan (twist)</option><option value="tokoh">🎭 Fakta jadi cerita POV (kamu tokoh utamanya)</option></select></label>
         <label>🎭 Gaya cerita <select name="tone"><option value="">Bebas</option><option value="reflektif">Reflektif / intim (baca novel)</option><option value="analis">Analis sinis (Wall Street)</option><option value="santai">Santai</option><option value="misteri">Misteri</option><option value="dramatis">Dramatis</option><option value="lucu">Lucu</option><option value="dokumenter">Dokumenter</option><option value="inspiratif">Inspiratif</option><option value="edukatif">Edukatif</option><option value="dongeng">Dongeng anak</option></select></label>
         <label>Gaya gambar <select name="visual"><option value="lofi">☕ Lofi storybook (cerita POV)</option><option value="finance">💹 Finance dark (data, grafik)</option><option value="toonstory">🔥 Cerita kartun kepala bulat</option><option value="cartoon">Kartun / komik</option><option value="medical3d">Ilustrasi medis 3D (kesehatan)</option><option value="caveman">🔥 Doodle manusia purba</option><option value="stickman">🔥 Stickman putih</option><option value="flathistory">Sejarah kartun flat</option><option value="cinematic">Sinematik foto</option><option value="sketch">Sketsa coret warna</option><option value="clay3d">3D clay lucu</option><option value="anime">Anime lukis lembut</option><option value="papercut">Kolase kertas</option><option value="nusantara">Cerita rakyat Nusantara</option><option value="painting">Lukisan digital</option><option value="noir">Noir gelap</option><option value="archive">Foto arsip jadul</option></select></label>
         <label>Gambar per adegan <select name="images_per_scene"><option value="1">1 (hemat)</option><option value="2">2</option></select></label>
@@ -543,6 +546,7 @@ loadAgent();
 
 // ===== Motion Graphic =====
 $('m-vm').onchange=e=>{$('m-voice').style.display=e.target.value==='ai'?'':'none';$('m-audio').style.display=e.target.value==='upload'?'':'none'};
+try{if(localStorage.mLabel)$('fm').label.value=localStorage.mLabel}catch(e){}
 $('fm').onsubmit=async e=>{e.preventDefault();const b=$('go-m');b.disabled=true;b.textContent='Mengirim...';
   try{const d=await (await fetch('/api/motion/create',{method:'POST',body:new FormData(e.target)})).json();if(d.error)return alert(d.error);
     if((d.ids||[]).length>1)alert(`📦 ${d.ids.length} video masuk antrean (dikerjakan ${d.parallel} sekaligus)`);
@@ -560,31 +564,58 @@ function mEngine(){const r=$('m-engine').value==='remotion';$('m-brand').style.d
   const up=document.querySelector('#m-vm option[value=upload]');up.disabled=r;if(r&&$('m-vm').value==='upload'){$('m-vm').value='ai';$('m-vm').onchange({target:$('m-vm')})}}
 // ===== Revisi naskah Motion sebelum suara & render =====
 const MDRAFT={};   // ketikan pengguna per job, supaya tidak hilang saat daftar digambar ulang
-function mDraft(j){return MDRAFT[j.id]||(MDRAFT[j.id]={title:j.draft.title||j.name,scenes:j.draft.scenes.map(s=>s.text)})}
+function mDraft(j){return MDRAFT[j.id]||(MDRAFT[j.id]={title:j.draft.title||j.name,scenes:j.draft.scenes.map(s=>s.text),voice:j.eleven_wait?'eleven_web':((j.motion||{}).voice_mode==='none'?'none':(j.motion||{}).voice||'')})}
 function scriptForm(j){const d=mDraft(j),wc=d.scenes.join(' ').split(/\s+/).filter(Boolean).length;
   return `<div class="mscript" style="margin-top:10px"><div class="note">✍️ Baca keras-keras tiap adegan. Pakai kalimat pendek & bahasa lisan ("kamu", "nah", "jadi gini"); tulis angka seperti diucapkan bila perlu. Teks inilah yang dibacakan suara AI dan jadi subtitle.</div>
   <label style="display:block;margin-top:8px">Judul <input type="text" style="width:100%" value="${esc(d.title)}" oninput="MDRAFT['${j.id}'].title=this.value"></label>
   ${j.draft.scenes.map((s,i)=>`<div style="margin-top:8px"><div class="st"><b>Adegan ${i+1}</b>${s.visual?` · 🎨 ${esc(s.visual)}`:''}</div>
     <textarea rows="2" style="width:100%;margin-top:4px" oninput="MDRAFT['${j.id}'].scenes[${i}]=this.value;mCount('${j.id}')">${esc(d.scenes[i])}</textarea></div>`).join('')}
   <div class="row" style="margin-top:8px;justify-content:space-between"><span class="st" id="mwc-${j.id}">${wc} kata · ±${Math.round(wc/2)} detik</span>
-  <span><button type="button" class="ghost" onclick="delete MDRAFT['${j.id}'];$('m-jobs').dataset.h='';drawMotion()">↺ Kembalikan</button>
-  <button type="button" onclick="continueM('${j.id}',this)">▶ Lanjut: suara & animasi</button></span></div></div>`}
+  <span><button type="button" class="ghost" onclick="natM('${j.id}',this)" title="Tulis ulang jadi bahasa lisan yang natural (Claude langganan, cadangan Gemini)">✨ Rapikan bahasa</button>
+  <button type="button" class="ghost" onclick="delete MDRAFT['${j.id}'];$('m-jobs').dataset.h='';drawMotion()">↺ Kembalikan</button>
+  <button type="button" onclick="continueM('${j.id}',this)">▶ Lanjut: suara & animasi</button></span></div>
+  <div class="row" style="margin-top:8px"><label>🎙️ Suara <select onchange="MDRAFT['${j.id}'].voice=this.value">
+    <option value="eleven_web" ${d.voice==='eleven_web'?'selected':''}>🎧 ElevenLabs web (lewat ekstensi, pilih suara di ElevenLabs)</option>
+    ${Object.entries(VOICES).map(([k,l])=>`<option value="${k}" ${d.voice===k?'selected':''}>${esc(l)}</option>`).join('')}
+    <option value="none" ${d.voice==='none'?'selected':''}>Tanpa suara</option></select></label>
+  ${j.eleven_wait?'<span class="st">⏳ Menunggu suara dari ekstensi ElevenLabs. Buka ElevenLabs → panel ShortsClips → pilih video ini → ▶ Buat suara.</span>':''}</div></div>`}
+async function naturalize(texts,lang){const r=await (await fetch('/api/naturalize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({texts,lang})})).json();
+  if(r.error)throw new Error(r.error);return r}
+async function natM(id,b){const j=JOBS.find(x=>x.id===id),d=MDRAFT[id]||mDraft(j);b.disabled=true;b.textContent='✨ Merapikan...';
+  try{const r=await naturalize(d.scenes,(j.motion&&j.motion.lang)||'id');d.scenes=r.texts;$('m-jobs').dataset.h='';drawMotion();
+    alert(`Bahasa dirapikan (${r.engine==='claude'?'Claude':'Gemini'}). Cek lagi tiap adegan, lalu klik Lanjut. ↺ Kembalikan = naskah awal.`)}
+  catch(e){alert('Gagal merapikan: '+e.message);b.disabled=false;b.textContent='✨ Rapikan bahasa'}}
 function mCount(id){const n=MDRAFT[id].scenes.join(' ').split(/\s+/).filter(Boolean).length,el=$('mwc-'+id);if(el)el.textContent=`${n} kata · ±${Math.round(n/2)} detik`}
 async function continueM(id,b){const d=MDRAFT[id]||mDraft(JOBS.find(x=>x.id===id));
   if(d.scenes.some(t=>!t.trim()))return alert('Teks adegan tidak boleh kosong');b.disabled=true;b.textContent='Mengirim...';
   try{const r=await (await fetch(`/api/motion/${id}/script`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})).json();
     if(r.error){alert(r.error);b.disabled=false;b.textContent='▶ Lanjut: suara & animasi';return}
+    if(r.wait==='eleven')alert('Naskah tersimpan. Buka ElevenLabs, pilih suaranya, lalu di panel ShortsClips pilih video ini dan klik ▶ Buat suara.');
     delete MDRAFT[id];$('m-jobs').dataset.h='';refresh()}catch(e){b.disabled=false;b.textContent='▶ Lanjut: suara & animasi'}}
+async function contAllM(b){const v=$('m-bv').value,js=JOBS.filter(j=>j.kind==='motion'&&j.status==='naskah'&&!j.eleven_wait);
+  if(!confirm(`Lanjutkan ${js.length} naskah sekaligus dengan suara yang sama?`))return;b.disabled=true;let ok=0;
+  for(const j of js){const d={...mDraft(j),voice:v};b.textContent=`Mengirim ${ok+1}/${js.length}...`;
+    try{const r=await (await fetch(`/api/motion/${j.id}/script`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})).json();if(!r.error){ok++;delete MDRAFT[j.id]}}catch(e){}}
+  alert(`${ok}/${js.length} naskah dilanjutkan.`+(v==='eleven_web'?' Buka ElevenLabs → panel ShortsClips → ☑ Pilih semua → ▶ Buat suara terpilih.':' Render berjalan 2 sekaligus.'));
+  $('m-jobs').dataset.h='';refresh()}
 function drawMotion(){const ms=JOBS.filter(j=>j.kind==='motion');
-  const html=(ms.length>1?`<div class="foldbar"><button class="ghost" onclick="mAll(true)">▾ Buka semua</button><button class="ghost" onclick="mAll(false)">▸ Lipat semua</button></div>`:'')+ms.map((j,k)=>{const done=isDone(j),p=Math.min(j.progress??0,99),c=(j.clips||[])[0],ar=RATIO[j.aspect]||'9/16',op=mOpen(j,k);
+  const nk=ms.filter(j=>j.status==='naskah'&&!j.eleven_wait).length;
+  const html=(nk>1?`<div class="card" style="padding:10px"><div class="row"><b>⚡ ${nk} naskah menunggu</b> <label>🎙️ Suara semua <select id="m-bv"><option value="eleven_web">🎧 ElevenLabs web (ekstensi, batch)</option>${Object.entries(VOICES).map(([k,l])=>`<option value="${k}">${esc(l)}</option>`).join('')}<option value="none">Tanpa suara</option></select></label>
+    <button type="button" onclick="contAllM(this)">▶ Lanjut semua</button></div></div>`:'')+(ms.length>1?`<div class="foldbar"><button class="ghost" onclick="mAll(true)">▾ Buka semua</button><button class="ghost" onclick="mAll(false)">▸ Lipat semua</button></div>`:'')+ms.map((j,k)=>{const done=isDone(j),p=Math.min(j.progress??0,99),c=(j.clips||[])[0],ar=RATIO[j.aspect]||'9/16',op=mOpen(j,k);
     return `<div class="card job mjob ${op?'':'mf'}"><div class="row" style="justify-content:space-between;flex-wrap:nowrap"><div style="min-width:0;cursor:pointer;flex:1" onclick="mToggle('${j.id}')" title="Klik untuk buka/lipat"><h3><span class="mcaret">${op?'▾':'▸'}</span><span class="badge">${esc(j.aspect||'')}</span><span class="badge">${esc((j.motion||{}).style||'')}</span>${esc(j.name)}</h3>
     <div class="st ${j.status==='error'?'err':''}">${done?'':`<b>${p}%</b> · `}${j.status.toUpperCase()} — ${esc(j.log)}${j.version?` · versi ${j.version}`:''}</div></div>
     <button class="ghost" onclick="del('${j.id}')">Hapus</button></div>${done||j.status==='naskah'?'':`<div class="bar"><i style="width:${p}%"></i></div>`}
     ${j.status==='naskah'&&j.draft?scriptForm(j):''}
     ${j.version||c?`<div class="mgrid">${j.version&&!(c&&c.file===`motion_v${j.version}.mp4`)?`<div class="mbox"><span class="cap">Pratinjau langsung v${j.version}</span><button class="fs" title="Layar penuh" onclick="this.nextElementSibling.requestFullscreen()">⛶</button><iframe sandbox="allow-scripts" allow="fullscreen" style="aspect-ratio:${ar}" src="/motion/${j.id}/preview?v=${j.version}"></iframe></div>`:''}
     ${c&&!(j.version&&c.file!==`motion_v${j.version}.mp4`)?`<div class="mbox"><span class="cap">MP4</span><video style="aspect-ratio:${ar}" src="/media/${j.id}/${c.file}" controls preload="metadata"></video></div>`:''}</div>`:''}
-    ${c?`<div style="margin-top:10px"><a class="lnk" href="/media/${j.id}/${c.file}?dl=1">⬇ Unduh MP4</a>${c.description?`<div class="st" style="margin-top:6px">${esc(c.description)} ${esc((c.hashtags||[]).join(' '))}</div>`:''}</div>`:''}
-    ${done&&j.version?`<form class="row" style="margin-top:10px" onsubmit="return reviseM(event,'${j.id}')"><input type="text" name="instruction" placeholder="Revisi, mis. angka lebih besar, ganti warna jadi biru, peta lebih detail, perlambat transisi"><button>✏️ Revisi & render</button><button type="button" class="ghost" onclick="rerenderM('${j.id}')" title="Render ulang versi terakhir tanpa mengubah animasi">🔁 Render ulang</button></form>`:''}
+    ${c?`<div style="margin-top:10px"><a class="lnk" href="/media/${j.id}/${c.file}?dl=1">⬇ Unduh MP4</a>${(j.timeline||[]).length?`<a class="lnk" href="/motion/${j.id}/srt" title="Subtitle untuk CapCut / CC YouTube (${j.voice_mode==='none'?'timing perkiraan, tanpa suara':'timing dari suara'})">⬇ Unduh SRT</a>`:''}${c.description?`<div class="st" style="margin-top:6px">${esc(c.description)} ${esc((c.hashtags||[]).join(' '))}</div>`:''}</div>`:''}
+    ${done&&j.version?`<form class="row" style="margin-top:10px" onsubmit="return reviseM(event,'${j.id}')"><input type="text" name="instruction" placeholder="Revisi, mis. angka lebih besar, ganti warna jadi biru, peta lebih detail, perlambat transisi"><button>✏️ Revisi & render</button></form>
+    <form class="row" style="margin-top:6px" onsubmit="return rerenderM(event,'${j.id}')"><label>🎙️ Suara/narasi <select name="voice_mode" onchange="const f=this.form;f.voice.parentNode.style.display=this.value==='ai'?'':'none';f.audio.parentNode.style.display=this.value==='upload'?'':'none'"><option value="keep">Tetap seperti sekarang</option><option value="ai">Suara AI lain</option><option value="none">Tanpa suara</option><option value="upload">Upload narasi sendiri (mis. CapCut)</option></select></label>
+    <label style="display:none">Suara <select name="voice">${Object.entries(VOICES).map(([k,l])=>`<option value="${k}" ${k===(j.motion||{}).voice?'selected':''}>${esc(l)}</option>`).join('')}</select></label>
+    <label style="display:none">File <input type="file" name="audio" accept="audio/*,video/mp4"></label>
+    <label>🏷️ Label <input type="text" name="label" maxlength="60" style="width:140px" value="${esc((j.motion||{}).label||'')}" placeholder="kosong = tanpa"></label>
+    <label>🔊 Efek <select name="sfx">${[['tipis','Tipis'],['sedang','Sedang'],['none','Tanpa']].map(([v,l])=>`<option value="${v}" ${((j.motion||{}).sfx||'tipis')===v?'selected':''}>${l}</option>`).join('')}</select></label>
+    <button class="ghost" title="Tetap = render ulang animasi yang sama. Tanpa suara = animasi sama tanpa audio. Suara lain/upload = waktu berubah, jadi animasi ditulis ulang AI.">🔁 Render ulang</button></form>`:''}
     ${(j.revisions||[]).length?`<div class="st" style="margin-top:6px">Riwayat revisi: ${j.revisions.map(esc).join(' → ')}</div>`:''}</div>`}).join('')||'<div class="empty">Belum ada motion graphic.</div>';
   const box=$('m-jobs');if(!typing(box))set('m-jobs',html)}
 // ===== Miniatur Timelapse =====
@@ -616,7 +647,9 @@ function drawMini(){const ms=JOBS.filter(j=>j.kind==='mini');
 async function renderMini(e,id){e.preventDefault();const btn=e.target.querySelector('button');btn.disabled=true;btn.textContent='Mengunggah...';
   try{const d=await (await fetch(`/api/mini/${id}/render`,{method:'POST',body:new FormData(e.target)})).json();if(d.error)return alert(d.error);
     $('mini-jobs').dataset.h='';refresh()}finally{btn.disabled=false}return false}
-async function rerenderM(id){const d=await (await fetch(`/api/motion/${id}/rerender`,{method:'POST'})).json();if(d.error)return alert(d.error);$('m-jobs').dataset.h='';refresh()}
+async function rerenderM(e,id){e.preventDefault();const m=e.target.voice_mode.value;
+  if((m==='ai'||m==='upload')&&!confirm('Suara baru mengubah waktu tiap adegan, jadi animasi ditulis ulang AI (versi baru). Lanjut?'))return false;
+  const d=await (await fetch(`/api/motion/${id}/rerender`,{method:'POST',body:new FormData(e.target)})).json();if(d.error){alert(d.error);return false}$('m-jobs').dataset.h='';refresh();return false}
 async function reviseM(e,id){e.preventDefault();const d=await (await fetch(`/api/motion/${id}/revise`,{method:'POST',body:new FormData(e.target)})).json();
   if(d.error)return alert(d.error);e.target.reset();$('m-jobs').dataset.h='';refresh();return false}
 
@@ -670,6 +703,9 @@ function drawDoc(){const d=DOC,s=d.script,m=s.metadata||{},T=m.titles||[],P='/do
       <button class="ghost" onclick="pairDoc()">${s.pair?((s.aspect||'16:9')==='9:16'?'➡️ Buka versi video panjang':'➡️ Buka versi Shorts'):((s.aspect||'16:9')==='9:16'?'➕ Buat versi video panjang 16:9':'➕ Buat versi Shorts 9:16 (gambar sendiri)')}</button></div>
     <div id="d-status"></div></div>
   <div class="card dmeta"><div class="step">1 · Naskah & metadata</div>
+    <div class="row st" style="margin-bottom:6px">📏 Panjangkan ke <input id="d-xmin" type="number" min="1" step="0.5" value="${s.minutes||10}" style="width:60px"> menit, suara
+      <select id="d-xwpm"><option value="200" ${s.wpm==200?'selected':''}>CapCut (cepat, ±200 kata/mnt)</option><option value="150" ${s.wpm!=200&&(s.lang||'en')!=='id'?'selected':''}>Suara AI EN (±150)</option><option value="130" ${s.wpm!=200&&(s.lang||'en')==='id'?'selected':''}>Suara AI ID (±130)</option></select>
+      <button class="ghost" onclick="expandDoc()" title="AI menyisipkan adegan baru; adegan & gambar lama tetap">📏 Panjangkan naskah</button>${s.text_backup_scenes?'<button class="ghost" onclick="undoExpand()">↶ Naskah sebelum diperpanjang</button>':''}</div>
     <div class="st" style="margin-bottom:8px">${s.scenes.length} adegan · ${words} kata · ±${(words/150).toFixed(1)} menit suara${s.scenes.some(x=>x.flag)?' · <b style="color:var(--err)">⚠️ ada klaim yang perlu dicek (kotak merah)</b>':''}</div>
     ${[0,1,2].map(i=>`<input data-title="${i}" value="${esc(T[i]||'')}" placeholder="Opsi judul ${i+1}" style="margin-bottom:6px">`).join('')}
     <textarea id="dm-desc" rows="4" placeholder="Deskripsi YouTube (chapter ditambahkan otomatis setelah render)">${esc(m.description||'')}</textarea>
@@ -677,12 +713,13 @@ function drawDoc(){const d=DOC,s=d.script,m=s.metadata||{},T=m.titles||[],P='/do
     <input id="dm-hash" value="${esc((m.hashtags||[]).join(' '))}" placeholder="#hashtag" style="margin-top:6px">
     <div id="d-scenes" style="margin-top:10px">${s.scenes.map((x,i)=>`<div class="scn"><div class="no">${i+1}</div>
       <div><input data-k="chapter" data-i="${i}" value="${esc(x.chapter||'')}" placeholder="Chapter baru? (kosong = lanjut)" style="margin-bottom:6px">
+        <input data-k="num" data-i="${i}" value="${esc(x.num||'')}" placeholder="🔢 No. poin (mis. 1; kosong = otomatis dari 'Pertama/Kedua'; - = tanpa)" title="Kartu nomor besar #1, #2... muncul di awal penjelasan poin ini" style="margin-bottom:6px">
         <textarea data-k="text" data-i="${i}">${esc(x.text)}</textarea><div class="st">${wc(x.text)} kata${x.start!=null?` · ${fmt(x.start)}–${fmt(x.end)}`:''}</div></div>
       <div><textarea data-k="prompts" data-i="${i}" placeholder="Prompt gambar (1 per baris)">${esc((x.prompts||[]).join('\n'))}</textarea>
         <button type="button" class="ghost" style="margin-top:4px;padding:3px 8px;font-size:12px" onclick="reprompt('${i+1}')">🔄 Prompt adegan ini</button>
         <input data-k="flag" data-i="${i}" class="${x.flag?'flag':''}" value="${esc(x.flag||'')}" placeholder="Klaim yang perlu dicek (kosong = aman)" style="margin-top:6px">
         ${x.sfx!=null||s.storyboard?`<input data-k="sfx" data-i="${i}" value="${esc(x.sfx||'')}" placeholder="🔊 SFX (catatan editing)" title="Catatan SFX dari storyboard untuk editing di CapCut" style="margin-top:6px">`:''}</div></div>`).join('')}</div>
-    <div class="row" style="margin-top:10px"><button id="d-save" onclick="saveDoc()">💾 Simpan naskah</button><a class="lnk" href="${P}script.srt?dl=1">⬇ script.srt (untuk CapCut)</a>
+    <div class="row" style="margin-top:10px"><button id="d-save" onclick="saveDoc()">💾 Simpan naskah</button><button class="ghost" id="d-nat" onclick="natDoc()" title="Tulis ulang semua narasi jadi bahasa lisan yang natural (Claude langganan, cadangan Gemini). Isi & panjang tetap.">✨ Rapikan bahasa</button>${s.text_backup?'<button class="ghost" onclick="undoNat()">↶ Naskah sebelum dirapikan</button>':''}<a class="lnk" href="${P}script.srt?dl=1">⬇ script.srt (untuk CapCut)</a>
       <input type="file" id="d-srt" accept=".srt" style="max-width:200px"><button class="ghost" onclick="upSrt()">⬆ Pakai SRT dari CapCut</button><span class="st" id="d-saved"></span></div></div>
   <div class="card"><div class="step">2 · Prompt untuk Google Flow</div>
     <div class="row" style="margin-bottom:10px"><label>🎨 Gaya <select id="rp-visual">${DOC_STYLES.map(([k,l])=>opt(k,l,s.visual||'cartoon')).join('')}</select></label>
@@ -746,11 +783,28 @@ async function reprompt(scenes){
   const clear=confirm('HAPUS juga GAMBAR LAMA di adegan itu agar dibuat ulang dengan gaya baru?\n\nOK = ya (file gambar lama dihapus permanen, ekstensi Flow akan membuat ulang)\nBatal = gambar lama tetap dipakai');
   try{await saveDoc(true);const fd=new FormData();fd.append('scenes',scenes||'');fd.append('visual',($('rp-visual')||{}).value||'');fd.append('clear',clear?'1':'0');
     await api(`/api/docs/${DPID}/reprompt`,{method:'POST',body:fd});DOC.state={status:'jalan',log:'Menulis ulang prompt gambar...'};drawDocStatus();pollDoc()}catch(e){alert(e.message)}}
+async function expandDoc(){const m=+$('d-xmin').value,w=+$('d-xwpm').value,now=DOC.script.scenes.reduce((a,x)=>a+wc(x.text),0);
+  if(!confirm(`Naskah sekarang ${now} kata (±${(now/w).toFixed(1)} menit dengan suara ini). Panjangkan jadi ±${Math.round(m*w)} kata (${m} menit)?
+
+Adegan & gambar lama tetap; adegan baru perlu dibuat gambarnya. Butuh ±3-8 menit.`))return;
+  try{await saveDoc(true);const fd=new FormData();fd.append('minutes',m);fd.append('wpm',w);
+    await api(`/api/docs/${DPID}/expand`,{method:'POST',body:fd});DOC.state={status:'jalan',log:'AI memperpanjang naskah...'};drawDocStatus();pollDoc()}catch(e){alert(e.message)}}
+async function undoExpand(){if(!confirm('Kembalikan naskah sebelum diperpanjang? Adegan baru (dan gambarnya) dilepas.'))return;
+  try{await api(`/api/docs/${DPID}/expand/undo`,{method:'POST'});DOC=await api('/api/docs/'+DPID);drawDoc()}catch(e){alert(e.message)}}
+async function natDoc(){const sc=DOC.script.scenes,b=$('d-nat');
+  if(!confirm(`Rapikan bahasa ${sc.length} adegan? Butuh ±${Math.max(1,Math.ceil(sc.length/15))} menit. Naskah lama disimpan sebagai cadangan (bisa dibatalkan).`))return;
+  b.disabled=true;b.textContent='✨ Merapikan... (jangan tutup)';
+  try{const r=await naturalize(sc.map(x=>x.text),DOC.script.lang||'en');DOC.script.text_backup=sc.map(x=>x.text);
+    sc.forEach((x,i)=>x.text=r.texts[i]);await saveDoc(true);drawDoc();
+    alert(`Selesai (${r.engine==='claude'?'Claude':'Gemini'}) dan tersimpan. Suara AI perlu dibuat ulang. Untuk membatalkan: klik ↶ Naskah sebelum dirapikan.`)}
+  catch(e){alert('Gagal merapikan: '+e.message);b.disabled=false;b.textContent='✨ Rapikan bahasa'}}
+async function undoNat(){const bk=DOC.script.text_backup;if(!bk||!confirm('Kembalikan naskah sebelum dirapikan?'))return;
+  DOC.script.scenes.forEach((x,i)=>{if(bk[i]!=null)x.text=bk[i]});delete DOC.script.text_backup;await saveDoc(true);drawDoc()}
 async function saveDoc(quiet){const s=DOC.script,m=s.metadata=s.metadata||{};
   if($('dm-desc')){m.titles=[...document.querySelectorAll('[data-title]')].map(x=>x.value.trim()).filter(Boolean);m.description=$('dm-desc').value;
     m.tags=$('dm-tags').value.split(',').map(x=>x.trim()).filter(Boolean);m.hashtags=$('dm-hash').value.split(/\s+/).filter(Boolean)}
   const b=$('d-save');if(!quiet&&b){b.disabled=true;b.textContent='Menyimpan...'}
-  try{await api(`/api/docs/${DPID}/script`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scenes:s.scenes,metadata:m,theme:s.theme,tighten:s.tighten,lang:s.lang||'en',subtitles:s.subtitles!==false,transition_sfx:s.transition_sfx||'halus',dynamics:s.dynamics||'sedang',chapter_cards:s.chapter_cards!==false})});
+  try{await api(`/api/docs/${DPID}/script`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scenes:s.scenes,metadata:m,theme:s.theme,tighten:s.tighten,lang:s.lang||'en',subtitles:s.subtitles!==false,transition_sfx:s.transition_sfx||'halus',dynamics:s.dynamics||'sedang',chapter_cards:s.chapter_cards!==false,num_cards:s.num_cards!==false,text_backup:s.text_backup||null})});
     const t=new Date().toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
     if(!quiet){const y=scrollY;DOC=await api('/api/docs/'+DPID);drawDoc();scrollTo(0,y)}   // gambar ulang tanpa melompat ke atas
     if($('d-saved'))$('d-saved').innerHTML=`<b style="color:var(--acc2)">✓ Tersimpan ${t}</b> · script.srt diperbarui`;toast('✓ Naskah tersimpan')}
@@ -800,8 +854,9 @@ function drawDocStatus(){if(!DOC||!$('d-status'))return;const st=DOC.state,run=s
   set('d-render',`${probs.length?`<div class="warnbox">⚠️ Belum bisa render:\n- ${probs.slice(0,10).map(esc).join('\n- ')}</div>`:''}
     <div class="row" style="margin-top:6px"><label>📝 Teks di video <select onchange="DOC.script.subtitles=this.value==='1';saveDoc(true)"><option value="1" ${DOC.script.subtitles===false?'':'selected'}>Audio + teks (subtitle)</option><option value="0" ${DOC.script.subtitles===false?'selected':''}>Audio saja (tanpa teks)</option></select></label>
       <label>🔊 Efek suara transisi <select onchange="DOC.script.transition_sfx=this.value;saveDoc(true)">${[['halus','Whoosh halus'],['jelas','Whoosh jelas'],['off','Tanpa efek']].map(([k,l])=>`<option value="${k}" ${(DOC.script.transition_sfx||'halus')===k?'selected':''}>${l}</option>`).join('')}</select></label>
-      <label>🎥 Dinamika kamera <select onchange="DOC.script.dynamics=this.value;saveDoc(true)">${[['tenang','Tenang (1 gerakan per gambar)'],['sedang','Sedang (beberapa sudut per gambar)'],['dinamis','Dinamis (potongan cepat)'],['shorts','Shorts (ganti tiap ±2 dtk)']].map(([k,l])=>`<option value="${k}" ${(DOC.script.dynamics||'sedang')===k?'selected':''}>${l}</option>`).join('')}</select></label>
+      <label>🎥 Dinamika kamera <select onchange="DOC.script.dynamics=this.value;saveDoc(true)">${[['rapi','Rapi (cut, zoom match-cut, pan halus) ★'],['tenang','Tenang (1 gerakan per gambar)'],['sedang','Sedang (beberapa sudut per gambar)'],['dinamis','Dinamis (potongan cepat)'],['shorts','Shorts (ganti tiap ±2 dtk)']].map(([k,l])=>`<option value="${k}" ${(DOC.script.dynamics||'sedang')===k?'selected':''}>${l}</option>`).join('')}</select></label>
       <label><input type="checkbox" ${DOC.script.chapter_cards===false?'':'checked'} onchange="DOC.script.chapter_cards=this.checked;saveDoc(true)"> 🏷️ Judul chapter di layar</label>
+      <label title="Angka besar #1, #2... sebelum tiap poin penjelasan"><input type="checkbox" ${DOC.script.num_cards===false?'':'checked'} onchange="DOC.script.num_cards=this.checked;saveDoc(true)"> 🔢 Kartu nomor poin</label>
       <span class="st">final.srt tetap dibuat, bisa diupload sebagai subtitle/CC di YouTube.</span></div>
     <div class="row" style="margin:10px 0"><button onclick="renderDoc()" ${probs.length||run?'disabled':''}>🎬 Render video</button><span class="st">Gambar yang tidak berubah diambil dari cache, jadi render ulang lebih cepat.</span></div>
     ${o['final.mp4']?`<video src="${P}final.mp4?t=${Date.now()>>14}" controls preload="metadata" style="width:100%;max-height:min(70vh,620px);background:#000;border-radius:12px"></video>

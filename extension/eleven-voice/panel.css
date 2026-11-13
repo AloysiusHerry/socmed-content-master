@@ -1,0 +1,15 @@
+#sc-ev{position:fixed;right:16px;bottom:16px;z-index:2147483647;width:300px;background:#111;color:#eee;border-radius:12px;
+  box-shadow:0 8px 30px rgba(0,0,0,.4);font:13px/1.4 system-ui,sans-serif}
+#sc-ev .hd{padding:9px 12px;font-weight:700;background:#1d1d1d;border-radius:12px 12px 0 0;display:flex;justify-content:space-between}
+#sc-ev .x{cursor:pointer;padding:0 6px}
+#sc-ev.min .bd{display:none}
+#sc-ev .bd{padding:10px 12px}
+#sc-ev .row{display:flex;gap:6px;margin:6px 0}
+#sc-ev button{background:#ffd84d;color:#111;border:0;border-radius:7px;padding:6px 9px;font-weight:600;cursor:pointer}
+#sc-ev button.ghost{background:#2a2a2a;color:#eee}
+#sc-ev.busy button{opacity:.5;pointer-events:none}
+#sc-ev .list{max-height:180px;overflow:auto}
+#sc-ev .it{display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid #222}
+#sc-ev .it label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#sc-ev .n{color:#999;font-size:11px}
+#sc-ev .st{margin-top:6px;color:#bbb;font-size:12px}

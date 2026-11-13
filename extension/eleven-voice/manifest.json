@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "ShortsClips ElevenLabs Voice",
+  "version": "1.1.0",
+  "description": "Ambil naskah Motion ShortsClips (status NASKAH), bacakan di ElevenLabs web, lalu kirim MP3-nya kembali ke ShortsClips.",
+  "permissions": ["storage"],
+  "host_permissions": ["http://localhost:5000/*", "http://127.0.0.1:5000/*"],
+  "background": {"service_worker": "background.js"},
+  "content_scripts": [
+    {"matches": ["https://elevenlabs.io/app/*"], "js": ["hook.js"], "world": "MAIN", "run_at": "document_start"},
+    {"matches": ["https://elevenlabs.io/app/*"], "js": ["content.js"], "css": ["panel.css"], "run_at": "document_idle"}
+  ]
+}
