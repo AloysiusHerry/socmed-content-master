@@ -19,11 +19,35 @@ STYLES = {
               "badan ramping berkostum sesuai zaman, bayangan cel lembut; latar penuh warna hangat yang digambar detail "
               "(langit gradien, bangunan, alam) dengan lapisan parallax; SATU kata narasi besar putih ber-outline hitam di "
               "tengah layar mengikuti kata yang sedang diucapkan.",
+    "finance": "Finance explainer gaya pasar AS: latar putih/krem bersih, tokoh stickman garis hitam tebal kepala "
+               "lingkaran, SATU angka besar di tengah setiap scene ($500, 5%, -4) font tebal kapital, aksen HANYA hijau "
+               "dolar #2E7D32 (untung) dan merah #D32F2F (rugi), maks 4 kata teks per layar, properti flat 2D sederhana "
+               "(uang, grafik, aplikasi bank), grafik garis/bar beranimasi untuk angka, tanpa neon, kesan kredibel bukan kekanakan.",
+    "deepsea": "Deep sea scale (thalassophobia): kamera terus turun di satu kolom air vertikal, meter kedalaman besar "
+               "di sisi layar menghitung naik, gradasi biru muda → biru tua → hitam pekat dengan god rays memudar, objek "
+               "skala (penyelam, gedung, kapal karam, gunung) sebagai siluet gelap ber-rim light tipis, bioluminesensi cyan, "
+               "partikel marine snow melayang terus, vignette gelap, angka putih besar; misterius & sinematik, bukan kartun.",
+    "detektif": "Cerita detektif noir (fakta disajikan sebagai KASUS yang dipecahkan): tokoh detektif kartun bertopi fedora "
+                "+ jas trench krem, pose berpikir/memegang kaca pembesar/menunjuk/angkat topi; struktur adegan: kantor gelap "
+                "berhujan dengan map 'CASE #0xx' (pertanyaan) -> tiap fakta jadi 'Clue 1/2' di lokasi berbeda -> interogasi "
+                "'tersangka' di bawah lampu gantung (objek bicara lewat balon kata) -> papan bukti gabus dengan polaroid, sticky "
+                "note kuning & benang merah tertarik -> stempel merah 'SOLVED' + teaser 'NEXT CASE'. Palet gelap hangat cokelat/"
+                "hitam, sorot lampu kuning, hujan & vignette; balon kata putih font Courier New dengan efek ketik; caption bawah "
+                "gaya mesin tik di bar hitam. Kaca pembesar boleh memperbesar detail ilmiah (mis. 'SKIN x1000').",
     "stickman": "Stickman explainer: latar putih bersih (boleh tekstur kertas tipis), tokoh stickman garis hitam tebal "
                 "dengan kepala lingkaran, hanya aksen merah & biru untuk penekanan, properti digambar garis sederhana "
                 "ala papan tulis/whiteboard, teks kata kunci hitam tebal font Segoe UI.",
     "neon": "Neon cyber: latar hitam pekat, garis dan teks neon (magenta, cyan) dengan efek glow (shadowBlur), "
             "glitch ringan saat transisi, font Consolas/Bahnschrift.",
+    "2d": "Ilustrasi 2D flat vektor: bentuk geometris bersih tanpa outline (atau outline tipis), palet cerah tapi lembut "
+          "(biru tua, oranye, kuning, tosca) dengan bayangan datar satu tingkat & highlight sederhana; karakter 2D "
+          "proporsional (kepala bulat, badan sederhana, ekspresi jelas) dan benda/objek digambar detail bergaya ikon; "
+          "latar berlapis (depan-tengah-belakang) dengan parallax halus; teks kata kunci tebal font Bahnschrift.",
+    "3d": "Tampilan 3D (pseudo-3D di Canvas 2D, tanpa library): objek bervolume ala clay/toy render dengan shading gradien "
+          "radial & linear (sisi terang-gelap konsisten dari satu arah cahaya kiri-atas), bayangan lembut di lantai, highlight "
+          "spekular kecil, sudut membulat; adegan isometrik atau perspektif dengan titik hilang, kamera bergerak pelan "
+          "(dolly/orbit semu lewat skala & parallax berlapis), objek berputar dengan menggambar ulang sisi depan/samping; "
+          "warna pastel jenuh, latar gradien studio; teks kata kunci tebal 3D (beberapa lapis offset untuk ketebalan).",
 }
 
 CONTRACT = """KONTRAK TEKNIS (wajib, kalau dilanggar video gagal dirender):
@@ -152,7 +176,7 @@ atau menghapus kata-katanya (gabungan semua "text" harus sama persis dengan nask
     raw = _ask(f"""Tulis naskah video motion graphic pendek dalam {bahasa}.
 Topik / brief: {topic or '(lihat naskah)'}
 {rule}
-{STORY_RULE if style == "kartun" else '- "visual": tulis aksi stickman (pose, ekspresi) + properti yang digambar.' if style == "stickman" else ""}
+{STORY_RULE if _has(style, "kartun") else '- "visual": tulis aksi stickman (pose, ekspresi) + properti yang digambar.' if _has(style, "stickman") else ""}
 - 4-8 adegan. Adegan 1 = hook yang memancing rasa penasaran. Adegan terakhir = penutup yang membekas.
 - Fakta harus akurat. Utamakan angka, tanggal, perbandingan, lokasi yang bisa divisualkan.
 - "visual": deskripsi animasi untuk adegan itu (teks kinetik, angka menghitung naik, peta/garis yang tergambar,
@@ -299,30 +323,84 @@ def photo_rule(photos):
 - Jangan mendistorsi rasio foto (hitung skala dari naturalWidth/naturalHeight)."""
 
 
+MANUAL_NOTE = """
+CATATAN UNTUK CLAUDE (dikerjakan di claude.ai): buat SATU file HTML lengkap sebagai Artifact (tipe HTML) agar bisa langsung
+dipratinjau. Tambahkan di akhir script sebuah pemutar pratinjau yang otomatis memutar animasi berulang:
+  if(!window.__RENDER__){let t0=performance.now();(function loop(n){renderFrame(((n-t0)/1000)%DURATION);requestAnimationFrame(loop)})(t0)}
+Pemutar ini tidak boleh mengubah state global yang dipakai renderFrame (renderFrame tetap murni fungsi dari t).
+Jangan memakai CSS animation/@keyframes, SVG animasi, GSAP, atau library dari CDN: SEMUA gambar dilukis ke <canvas id="c">
+oleh renderFrame(t), karena video direkam frame demi frame dari canvas itu. Kirim kodenya utuh sampai </html>.
+"""
+
+
+def style_text(style):
+    """Gaya tunggal atau kombinasi "stickman+3d": deskripsi digabung, gaya pertama = dasar, berikutnya = tambahan."""
+    parts = [x for x in (style or "").split("+") if x]
+    if len(parts) <= 1:
+        return STYLES.get(style, style)
+    base, extra = parts[0], parts[1:]
+    return (f"KOMBINASI GAYA. Dasar ({base}): {STYLES.get(base, base)}\n"
+            + "".join(f"Dipadukan dengan ({x}): {STYLES.get(x, x)}\n" for x in extra)
+            + f"Padukan jadi SATU gaya yang konsisten di semua adegan: karakter/bentuk utama mengikuti gaya {base}, "
+              f"lalu terapkan ciri {', '.join(extra)} (mis. volume, shading, warna, latar) pada tokoh, properti, dan latar itu. "
+              "Jangan bergantian gaya antar adegan.")
+
+
+def _has(style, name):
+    return name in (style or "").split("+")
+
+
+def animation_prompt(title, timeline, duration, aspect="9:16", style="modern", notes="", photos=None, manual=False):
+    """Prompt penulisan kode animasi. manual=True: untuk ditempel di claude.ai (Free) lalu kodenya ditempel balik."""
+    return write_animation(title, timeline, duration, aspect, style, notes, photos=photos, _prompt_only=True,
+                           _manual=manual)
+
+
 def write_animation(title, timeline, duration, aspect="9:16", style="modern", notes="",
-                    api_key=None, model="claude-sonnet-5-5", log=print, photos=None):
+                    api_key=None, model="claude-sonnet-5-5", log=print, photos=None, _prompt_only=False, _manual=False):
     """photos: [{"i": 0, "name": "...", "w": .., "h": ..}] foto upload pengguna (tersedia sebagai window.PHOTOS[i])."""
     W, H = SIZES.get(aspect, SIZES["9:16"])
-    log("Menulis kode animasi...")
+    if not _prompt_only: log("Menulis kode animasi...")
     if photos:
         notes = (notes or "") + "\n\n" + photo_rule(photos)
     prompt = f"""Kamu motion designer kelas atas yang membuat animasi dengan kode (gaya video viral "motion graphics made with code").
 Buat motion graphic {aspect} ({W}x{H}) berdurasi {duration} detik.
 Judul: {title}
-Gaya visual: {STYLES.get(style, style)}
+Gaya visual: {style_text(style)}
 Catatan tambahan: {notes or '-'}
 
 Timeline adegan (detik) beserta narasi dan ide visual. Visual tiap adegan HARUS sinkron dengan waktu ini;
 kata kunci/angka penting dimunculkan tepat saat diucapkan (lihat "words" bila ada):
 {json.dumps(timeline, ensure_ascii=False)[:14000]}
 
-{CARTOON if style == "kartun" else STICKMAN if style == "stickman" else ""}{HOOK}Kualitas yang diharapkan: teks kinetik (kata muncul, memantul, berganti warna mengikuti narasi), angka yang menghitung naik,
+{CARTOON if _has(style, "kartun") else STICKMAN if _has(style, "stickman") else ""}{HOOK}Kualitas yang diharapkan: teks kinetik (kata muncul, memantul, berganti warna mengikuti narasi), angka yang menghitung naik,
 peta/garis/rute yang tergambar sendiri bila relevan, grafik, ikon geometris, transisi geser/zoom yang mulus antar adegan,
 palet & tipografi konsisten, detail halus (grain, partikel, glow) agar terlihat mahal. Jangan hanya slide teks statis.
 Tidak perlu subtitle penuh; tampilkan kata kunci saja.
+TATA LETAK MAKSIMAL (wajib): manfaatkan tinggi layar 9:16. Bila adegan ditaruh dalam kotak/kartu ilustrasi, kotak itu
+setinggi ±75-80% layar (dari bawah judul sampai ±82% tinggi layar), objek utama besar di dalamnya; teks kata kunci besar
+tepat di bawah kotak. Ruang kosong polos di bawah maksimal ±12% layar; jangan biarkan setengah layar kosong.
 
 {CONTRACT.format(W=W, H=H, DUR=duration)}"""
-    return _extract_html(_ask(prompt, api_key, model, log, label="AI menulis kode animasi"))
+    if _prompt_only:
+        return prompt + (MANUAL_NOTE if _manual else "")
+    return _ask_html(prompt, api_key, model, log, "AI menulis kode animasi")
+
+
+def _ask_html(prompt, api_key, model, log, label):
+    """Minta HTML; bila jawaban tanpa HTML lengkap (terpotong/berupa penjelasan), ulangi sekali dengan penegasan."""
+    raw = _ask(prompt, api_key, model, log, label=label)
+    try:
+        return _extract_html(raw)
+    except RuntimeError:
+        log("Jawaban AI tanpa HTML lengkap, mencoba sekali lagi...", 0.5)
+    raw = _ask(prompt + "\n\nPENTING: jawab HANYA dengan SATU file HTML lengkap dari <!DOCTYPE html> sampai </html>, "
+               "tanpa penjelasan, tanpa membuat/menulis file, dan buat kode ringkas agar tidak terpotong.",
+               api_key, model, log, label=label + " (ulang)")
+    try:
+        return _extract_html(raw)
+    except RuntimeError:
+        raise RuntimeError("AI tidak mengembalikan HTML animasi (2x). Awal jawaban AI: " + raw.strip()[:200])
 
 
 def revise_animation(html, instruction, api_key=None, model="claude-sonnet-5-5", log=print, error=None):
@@ -339,7 +417,7 @@ Pertahankan semua yang tidak diminta berubah. Kode saat ini:
     if "PHOTOS" in html:
         prompt += ("\n- PENGECUALIAN: window.PHOTOS (array HTMLImageElement foto pengguna) sudah disediakan & dimuat oleh "
                    "sistem sebelum renderFrame; tetap pakai dengan ctx.drawImage, jangan didefinisikan ulang.")
-    return _extract_html(_ask(prompt, api_key, model, log, label="AI merevisi kode animasi"))
+    return _ask_html(prompt, api_key, model, log, "AI merevisi kode animasi")
 
 
 def _browser(p):
@@ -405,6 +483,7 @@ def _open(p, html, photos=None):
     errors = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
     pg.route("**/*", lambda r: r.abort())   # animasi tidak boleh mengakses jaringan
+    pg.add_init_script("window.__RENDER__ = true")   # matikan pemutar pratinjau bawaan kode dari Claude Free
     pg.set_content(with_photos(html, photos))
     if photos:
         pg.wait_for_function("window.PHOTOS_READY === true", timeout=60000)

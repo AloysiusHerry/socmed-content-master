@@ -105,6 +105,10 @@ VISUAL_STYLES = {
     "cartoon": "cartoon comic book illustration style, bold outlines, vibrant colors, 16:9",
     "caveman": "funny hand-drawn doodle of prehistoric cavemen, thick black marker lines, simple flat colors, "
                "beige paper background, expressive cartoon faces, 16:9",
+    "detektif": "noir detective cartoon illustration, a detective in a fedora hat and beige trench coat investigating "
+                "the scene as a case (magnifying glass, case file, evidence board with polaroids, yellow sticky notes and "
+                "red string, interrogation lamp), dark warm brown and black palette, rainy night, single warm yellow light, "
+                "vignette, bold clean cartoon outlines, 16:9",
     "stickman": "minimalist black stickman drawing on a plain white background, clean thin lines, small red and blue "
                 "accent colors only, explainer video style, 16:9",
     "flathistory": "flat vector cartoon illustration of historical scenes, simple shapes, muted earthy palette, "
@@ -391,7 +395,7 @@ the first scene must have a chapter. Aim for {'3-4' if short else '5-8'} chapter
 {f'Visual mood hint: {theme_hint}' if theme_hint else ''}
 Return ONLY valid JSON:
 {{"metadata": {{"titles": ["3 different click-worthy but honest titles, max 70 chars"], "description": "2-3 paragraphs, SEO friendly",
-"tags": ["15-25 tags"], "hashtags": ["#3-5"]}}, "thumbnail_prompt": "ONE eye-catching YouTube thumbnail image prompt (same shared style prefix, bold single subject, high contrast, close-up, strong emotion or mystery, empty space for title text, no text in image)",
+"tags": ["15-25 tags"], "hashtags": ["#3-5"]}}, "thumbnail_prompt": "ONE eye-catching YouTube thumbnail image prompt (same shared style prefix) built around ONE absurd, physically impossible visual twist that makes people stop scrolling and ask \"wait, what?\" — e.g. a giant object in a tiny place, something melting/cracking/floating that never does, wrong scale, an everyday item doing something impossible — directly tied to the topic, not random; bold single subject, close-up, high contrast, strong facial emotion (shock/fear/curiosity), empty space for title text, no text in image",
 "theme": "one of documentary|noir|archive|fun that fits the topic",
 "scenes": [{{"text": "narration", "prompts": ["..."], "motion": "one short English sentence: how this image should animate for image-to-video (what the character does + one camera move)", "chapter": "Chapter title or null", "num": "point number or empty", "flag": "claim to verify or empty"}}]}}"""
     if storyboard:   # ganti bagian penulisan bebas dengan aturan storyboard; format JSON & metadata tetap sama

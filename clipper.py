@@ -475,13 +475,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 VOICES = {
     # Indonesia
     "id-ID-ArdiNeural": "🇮🇩 Ardi (pria, Indonesia asli)",
-    "id-ID-GadisNeural": "🇮🇩 Gadis (wanita, Indonesia asli)",
     "id|en-US-BrianMultilingualNeural": "🇮🇩 Brian (pria, santai, multibahasa)",
     "id|en-US-AndrewMultilingualNeural": "🇮🇩 Andrew (pria, hangat, multibahasa)",
-    "id|en-AU-WilliamMultilingualNeural": "🇮🇩 William (pria, ramah, multibahasa)",
-    "id|en-US-AvaMultilingualNeural": "🇮🇩 Ava (wanita, ekspresif, multibahasa)",
-    "id|en-US-EmmaMultilingualNeural": "🇮🇩 Emma (wanita, ceria, multibahasa)",
     "id|eleven:TX3LPaxmHKxFdv7VOQHJ": "✨ Liam ElevenLabs (pria, energik, paling natural)",
+    "id|eleven:pNInz6obpgDQGcFmaJgB": "✨ Adam ElevenLabs (pria, tegas, berwibawa)",
+    "id|eleven:nPczCjzI2devNBz1zQrb": "✨ Brian ElevenLabs (pria, dalam, menenangkan)",
+    "id|eleven:cjVigY5qzO86Huf0OWal": "✨ Eric ElevenLabs (pria, halus, terpercaya)",
+    "id|eleven:iP95p4xoKVk53GoZ742B": "✨ Chris ElevenLabs (pria, santai, membumi)",
+    "id|eleven:bIHbv24MWmeRgasZH58o": "✨ Will ElevenLabs (pria, muda, rileks)",
+    "id|eleven:pqHfZKP75CvOlQylNhV4": "✨ Bill ElevenLabs (pria, senior, bijak)",
     # English
     "en-US-AndrewMultilingualNeural": "🇺🇸 Andrew (male, warm)",
     "en-US-BrianMultilingualNeural": "🇺🇸 Brian (male, casual)",
@@ -489,16 +491,6 @@ VOICES = {
     "en-US-GuyNeural": "🇺🇸 Guy (male, passionate)",
     "en-US-EricNeural": "🇺🇸 Eric (male, calm)",
     "en-US-RogerNeural": "🇺🇸 Roger (male, lively)",
-    "en-US-AvaMultilingualNeural": "🇺🇸 Ava (female, expressive)",
-    "en-US-EmmaMultilingualNeural": "🇺🇸 Emma (female, cheerful)",
-    "en-US-JennyNeural": "🇺🇸 Jenny (female, friendly)",
-    "en-US-AriaNeural": "🇺🇸 Aria (female, confident)",
-    "en-GB-RyanNeural": "🇬🇧 Ryan (male, British)",
-    "en-GB-ThomasNeural": "🇬🇧 Thomas (male, British)",
-    "en-GB-SoniaNeural": "🇬🇧 Sonia (female, British)",
-    "en-GB-LibbyNeural": "🇬🇧 Libby (female, British)",
-    "en-AU-WilliamMultilingualNeural": "🇦🇺 William (male, Australian)",
-    "en-AU-NatashaNeural": "🇦🇺 Natasha (female, Australian)",
 }
 
 
@@ -893,7 +885,13 @@ def tts(text, voice, out_path, max_dur=None):
                     words.append({"start": s, "end": s + ch["duration"] / 1e7, "word": ch["text"]})
         return words
 
-    words = asyncio.run(speak("+0%"))
+    try:
+        words = asyncio.run(speak("+0%"))
+    except Exception as e:   # suara ditarik/gagal di server Microsoft ("No audio was received"): pakai suara pria cadangan
+        if "No audio" not in str(e): raise
+        voice = "id-ID-ArdiNeural" if voice_lang(voice) == "id" else "en-US-GuyNeural"
+        print(f"[tts] suara gagal ({e}); pakai cadangan {voice}")
+        words = asyncio.run(speak("+0%"))
     dur = get_duration(out_path)
     if max_dur and dur > max_dur:
         pct = min(int((dur / max_dur - 1) * 100) + 3, 40)
@@ -971,6 +969,14 @@ SFX = {   # dibuat sekali dari noise/sinus (tanpa file dari internet, aman hak c
     # riser: desis naik 1,2 dtk yang memuncak tepat di titik grafis muncul; impact: hantaman pendek + dentum rendah
     "riser": ["anoisesrc=d=1.2:c=white:a=0.5", "highpass=f=700,lowpass=f=9000,afade=t=in:d=1.15:curve=qsin,afade=t=out:st=1.15:d=0.05,volume=0.55"],
     "impact": ["anoisesrc=d=0.9:c=brown:a=0.9", "lowpass=f=180,afade=t=out:st=0.02:d=0.85:curve=exp,bass=g=8,volume=2.2"],
+    # ting: lonceng kecil (fakta mengejutkan); sparkle: kilau naik (penutup/jawaban); boing: pegas lucu;
+    # buzz: bel "salah" dua kali (mitos/keliru); click: klik pendek (daftar/ketikan); swish: whoosh pendek
+    "ting": ["aevalsrc='0.55*sin(2*PI*1760*t)*exp(-5*t)+0.25*sin(2*PI*3520*t)*exp(-8*t)+0.12*sin(2*PI*5280*t)*exp(-12*t)':d=1.0", "volume=0.9"],
+    "sparkle": ["aevalsrc='0.25*sin(2*PI*(1500*t+2500*t*t))*exp(-3*t)+0.18*sin(2*PI*(2600*t+3000*t*t))*exp(-4*t)':d=0.7", "afade=t=in:d=0.02,volume=0.9"],
+    "boing": ["aevalsrc='0.6*sin(2*PI*(160*t+260*t*t+5*sin(2*PI*11*t)))*exp(-3.5*t)':d=0.65", "lowpass=f=2500,volume=1.0"],
+    "buzz": ["aevalsrc='0.35*sgn(sin(2*PI*150*t))*(between(t,0,0.16)+between(t,0.22,0.42))':d=0.45", "lowpass=f=1400,afade=t=out:st=0.38:d=0.07,volume=0.7"],
+    "click": ["anoisesrc=d=0.04:c=white:a=0.8", "highpass=f=2000,afade=t=out:st=0.005:d=0.035,volume=0.8"],
+    "swish": ["anoisesrc=d=0.35:c=pink:a=0.6", "highpass=f=1200,lowpass=f=8000,afade=t=in:d=0.12:curve=exp,afade=t=out:st=0.12:d=0.23,volume=0.75"],
 }
 POINT_WORDS = {"pertama": "pop", "kedua": "pop", "ketiga": "boom", "first": "pop", "second": "pop", "third": "boom",
                "firstly": "pop", "secondly": "pop", "thirdly": "boom"}
@@ -1269,6 +1275,27 @@ def usage_summary(days=30):
     return out
 
 
+class UsageLimit(RuntimeError):
+    """Kuota langganan Claude habis. resets = teks jam reset dari CLI (mis. '8:50pm (Asia/Jakarta)')."""
+    def __init__(self, msg, resets=""):
+        super().__init__(msg); self.resets = resets
+
+
+def _check_limit(text):
+    t = text or ""
+    try:
+        j = json.loads(t[t.find("{"):]) if "{" in t else {}
+    except ValueError:
+        j = {}
+    res = str(j.get("result") or "") if isinstance(j, dict) else ""
+    hit = (isinstance(j, dict) and (j.get("api_error_status") == 429 or j.get("api_error") == "usage_limit_reached")) \
+        or re.search(r"usage_limit_reached|hit your (session |weekly |usage )?limit", t, re.I)
+    if hit:
+        m = re.search(r'resets? (?:at )?([^"\n]+)', res or t)
+        resets = (m.group(1).strip() if m else "")
+        raise UsageLimit(f"Kuota Claude habis{' (reset ' + resets + ')' if resets else ''}", resets)
+
+
 def _ask_claude_code(prompt, log=print, cwd=None, read_files=False, timeout=900, progress=None):
     """Pakai Claude Code CLI (login langganan Pro/Max), tanpa API key.
     read_files=True: Claude boleh memakai tool Read (mis. melihat gambar frame) di folder cwd.
@@ -1299,6 +1326,7 @@ def _ask_claude_code(prompt, log=print, cwd=None, read_files=False, timeout=900,
         if progress and t.is_alive():
             progress(elapsed)
     if p.returncode != 0:
+        _check_limit((result.get("out") or "") + "\n" + (result.get("err") or ""))
         raise RuntimeError("Claude Code error: " + (result.get("err") or result.get("out") or "")[-800:])
     raw = result.get("out", "")
     try:
@@ -1308,6 +1336,7 @@ def _ask_claude_code(prompt, log=print, cwd=None, read_files=False, timeout=900,
     if not isinstance(j, dict) or "result" not in j:
         return raw
     if j.get("is_error"):
+        _check_limit(raw)
         raise RuntimeError("Claude Code error: " + str(j.get("result"))[-800:])
     u = j.get("usage") or {}
     record_usage(log, "code", u.get("input_tokens", 0), u.get("output_tokens", 0), u.get("cache_read_input_tokens", 0),

@@ -1,4 +1,4 @@
-import os, re, sys, uuid, json, threading, shutil, traceback
+import os, re, sys, uuid, json, threading, shutil, traceback, hmac
 
 # Kalau dijalankan dengan Python sistem (mis. "python app.py"), pindah ke Python venv
 # karena semua paket (faster-whisper, flask, dll) terpasang di sana.
@@ -55,6 +55,99 @@ def load_cfg():
     except Exception: return {}
 
 
+# ===== Login =====
+# Satu pengguna, password di config.json (hash). Permintaan langsung dari komputer ini (127.0.0.1 tanpa header proxy,
+# mis. ekstensi Chrome) tidak perlu login; akses dari Wi-Fi/internet (termasuk lewat Cloudflare Tunnel/ngrok) wajib login.
+from werkzeug.security import generate_password_hash, check_password_hash
+from flask import session, redirect, render_template_string
+import datetime as _dt, secrets as _secrets, time as _time
+
+PROXY_HEADERS = ("X-Forwarded-For", "X-Real-Ip", "Cf-Connecting-Ip", "Forwarded", "X-Forwarded-Host", "Ngrok-Skip-Browser-Warning")
+_FAILS = {}   # ip -> [jumlah gagal, waktu kunci sampai]
+
+
+def _is_local():
+    return request.remote_addr in ("127.0.0.1", "::1") and not any(h in request.headers for h in PROXY_HEADERS)
+
+
+def _client_ip():
+    return request.headers.get("Cf-Connecting-Ip") or (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip()         or request.remote_addr
+
+
+def _secret_key():
+    c = load_cfg()
+    if not c.get("secret_key"):
+        c["secret_key"] = _secrets.token_hex(32); save_cfg(c)
+    return c["secret_key"]
+
+
+LOGIN_HTML = """<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Masuk · ShortsClips</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0b10;color:#e8e8ef;
+font:16px Segoe UI,system-ui,sans-serif}form{background:#16161f;border:1px solid #2a2a38;border-radius:14px;padding:28px;width:min(340px,90vw)}
+h1{font-size:20px;margin:0 0 6px}p{color:#9a9ab0;font-size:13px;margin:0 0 16px}input{width:100%;box-sizing:border-box;padding:11px;margin:6px 0 12px;
+border-radius:9px;border:1px solid #2a2a38;background:#0f0f15;color:#e8e8ef;font:inherit}button{width:100%;padding:11px;border:0;border-radius:9px;
+background:#7c5cff;color:#fff;font:600 15px inherit;cursor:pointer}.e{color:#ff6b6b;font-size:13px;margin-bottom:10px}label{font-size:13px;color:#9a9ab0}</style></head>
+<body><form method="post"><h1>🎬 ShortsClips</h1>{% if setup %}<p>Buat password untuk mengunci dashboard. Wajib sebelum dibuka dari Wi-Fi/internet.</p>
+{% else %}<p>Masukkan password untuk membuka dashboard.</p>{% endif %}{% if err %}<div class="e">{{err}}</div>{% endif %}
+<input type="password" name="password" placeholder="Password" autofocus required minlength="{{ 8 if setup else 1 }}">
+{% if setup %}<input type="password" name="password2" placeholder="Ulangi password" required minlength="8">{% endif %}
+<label><input type="checkbox" name="remember" value="1" checked style="width:auto;margin:0 6px 0 0">Ingat perangkat ini 30 hari</label><br><br>
+<button>{{ 'Simpan & masuk' if setup else 'Masuk' }}</button></form></body></html>"""
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    setup = not load_cfg().get("password_hash")
+    if setup and not _is_local():   # password pertama hanya boleh dibuat dari komputer ini
+        return "Password belum dibuat. Buka http://127.0.0.1:5000/login di komputer ShortsClips untuk membuatnya.", 403
+    err, ip = "", _client_ip()
+    if request.method == "POST":
+        n, until = _FAILS.get(ip, [0, 0])
+        pw = request.form.get("password", "")
+        if until > _time.time():
+            err = f"Terlalu banyak percobaan. Coba lagi {int((until - _time.time()) // 60) + 1} menit lagi."
+        elif setup:
+            if len(pw) < 8: err = "Password minimal 8 karakter."
+            elif pw != request.form.get("password2"): err = "Password tidak sama."
+            else:
+                c = load_cfg(); c["password_hash"] = generate_password_hash(pw); save_cfg(c)
+        elif not check_password_hash(load_cfg()["password_hash"], pw):
+            n += 1; _FAILS[ip] = [n, _time.time() + 900 if n >= 5 else 0]; _time.sleep(1)
+            err = "Password salah." + (" Dikunci 15 menit." if n >= 5 else "")
+        if not err:
+            _FAILS.pop(ip, None)
+            session.clear(); session["auth"] = True; session.permanent = request.form.get("remember") == "1"
+            nxt = request.args.get("next", "/")
+            return redirect(nxt if nxt.startswith("/") and not nxt.startswith("//") else "/")
+    return render_template_string(LOGIN_HTML, setup=setup, err=err)
+
+
+@app.route("/logout")
+def logout():
+    session.clear(); return redirect("/login")
+
+
+def _media_tok(jid):
+    import hashlib
+    return hmac.new(str(app.secret_key).encode(), ("media:" + jid).encode(), hashlib.sha256).hexdigest()[:24]
+
+
+@app.before_request
+def _require_login():
+    if request.endpoint in ("login", "static") or session.get("auth"):
+        return None
+    if _is_local() and load_cfg().get("allow_local", True):   # komputer ini sendiri (dashboard & ekstensi)
+        return None
+    if request.path.startswith("/media/"):
+        # pratinjau (iframe sandbox = origin kosong) tidak membawa cookie login: audio memakai token per job
+        parts = request.path.split("/")
+        if len(parts) > 2 and request.args.get("k") and hmac.compare_digest(request.args["k"], _media_tok(parts[2])):
+            return None
+    if request.path.startswith("/api/") or request.path.startswith("/media/"):
+        return jsonify(error="Perlu login"), 401
+    return redirect("/login?next=" + quote(request.full_path.rstrip("?")))
+
+
 def write_json_atomic(path, data):
     """Tulis ke file sementara lalu ganti sekaligus: kalau server mati di tengah penulisan,
     file lama tetap utuh (tidak jadi 0 byte / setengah tertulis)."""
@@ -81,13 +174,21 @@ def load_jobs():
             os.replace(p, p + ".rusak")
             print(f"[peringatan] {p} rusak ({e}); dilewati, disimpan sebagai job.json.rusak")
             continue
-        if JOBS[jid].get("status") not in ("selesai", "error", "naskah"):   # naskah tetap menunggu revisi
+        if JOBS[jid].get("status") not in ("selesai", "error", "naskah", "batal", "limit", "kode"):   # naskah/limit/kode tetap menunggu
             JOBS[jid]["status"] = "error"; JOBS[jid]["log"] = "Terhenti (server restart)"
+
+
+CANCELLED = set()   # job yang diminta berhenti; dicek di setiap log progres
+
+
+class Cancelled(Exception):
+    pass
 
 
 def _logger(jid):
     job = JOBS[jid]
     def log(msg, pct=None):
+        if jid in CANCELLED: raise Cancelled()
         job["log"] = msg
         if pct is not None: job["progress"] = round(pct)
         print(f"[{jid}] {msg}")
@@ -202,13 +303,44 @@ def _load_tr(jid):
         return json.load(f)
 
 
-def _run(jid, body):
+RESUME = {}   # jid -> fungsi untuk mengulang proses yang terhenti karena kuota Claude habis (hilang saat server restart)
+
+
+def _reset_time(text):
+    """'8:50pm (Asia/Jakarta)' -> datetime lokal berikutnya + 2 menit. None bila tak terbaca."""
+    import datetime as dt
+    m = re.search(r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)", text or "", re.I)
+    if not m: return None
+    h, mi = int(m.group(1)) % 12 + (12 if m.group(3).lower() == "pm" else 0), int(m.group(2) or 0)
+    now = dt.datetime.now(); t = now.replace(hour=h, minute=mi, second=0, microsecond=0)
+    if t <= now: t += dt.timedelta(days=1)
+    return t + dt.timedelta(minutes=2)
+
+
+def _run(jid, body, resume=None):
     job = JOBS[jid]
     try:
+        if jid in CANCELLED: raise Cancelled()
         body()
+        RESUME.pop(jid, None); job.pop("resume_at", None)
+    except Cancelled:
+        job["status"] = "batal"; job["log"] = "Dibatalkan."
+    except clipper.UsageLimit as e:   # kuota habis: tunda, lanjut otomatis setelah reset
+        import datetime as dt
+        RESUME.setdefault(jid, resume or (lambda: _run(jid, body)))
+        at = _reset_time(e.resets) or dt.datetime.now() + dt.timedelta(minutes=30)
+        job["status"] = "limit"; job["resume_at"] = at.isoformat(timespec="minutes")
+        job["log"] = f"{e}. Lanjut otomatis {at:%d %b %H:%M}, atau klik ▶ Lanjutkan."
     except Exception as e:
-        traceback.print_exc()
-        job["status"] = "error"; job["log"] = str(e)
+        if jid in CANCELLED:   # error akibat pembatalan (mis. browser/ffmpeg ditutup) = batal biasa
+            job["status"] = "batal"; job["log"] = "Dibatalkan."
+        else:
+            traceback.print_exc()
+            job["status"] = "error"; job["log"] = str(e)
+    CANCELLED.discard(jid)
+    if job.get("status") != "limit": RESUME.pop(jid, None)
+    if job.get("_delete"):
+        JOBS.pop(jid, None); shutil.rmtree(os.path.join(JOBS_DIR, jid), ignore_errors=True); return
     save_job(jid)
 
 
@@ -411,6 +543,11 @@ def save_cfg(cfg):
     write_json_atomic(CFG, cfg)
 
 
+app.secret_key = _secret_key()   # tetap sama antar restart agar sesi login tidak hilang
+app.config.update(PERMANENT_SESSION_LIFETIME=_dt.timedelta(days=30), SESSION_COOKIE_HTTPONLY=True,
+                  SESSION_COOKIE_SAMESITE="Lax")
+
+
 def auto_cfg():
     return dict(AUTO_DEFAULT, **(load_cfg().get("auto") or {}))
 
@@ -563,7 +700,16 @@ def _motion_html(jid, html, key, log):
     return html
 
 
-MOTION_SFX = {"tipis": 0.14, "sedang": 0.28}   # volume efek suara terhadap narasi
+MOTION_SFX = {"tipis": 0.22, "sedang": 0.38}   # volume efek suara terhadap narasi
+SFX_REVEAL = {"actually", "real", "secret", "truth", "twist", "surprise", "turns", "reason", "because", "trick", "genius",
+              "clever", "hidden", "ternyata", "faktanya", "rahasia", "sebenarnya", "justru", "aslinya", "alasannya", "karena",
+              "triknya", "cerdik", "tersembunyi", "jawabannya"}
+SFX_WRONG = {"wrong", "myth", "mistake", "fake", "false", "never", "bad", "worse", "danger", "dangerous", "salah", "mitos",
+             "keliru", "bohong", "hoaks", "kaprah", "bahaya", "berbahaya", "jangan", "boros", "rusak"}
+SFX_FUNNY = {"weird", "funny", "crazy", "silly", "strange", "tiny", "huge", "giant", "wait", "oops", "aneh", "lucu", "konyol",
+             "unik", "nyeleneh", "kecil", "raksasa", "eh", "loh", "lho", "wah"}
+SFX_LIST = {"first", "second", "third", "next", "finally", "also", "pertama", "kedua", "ketiga", "selanjutnya", "terakhir",
+            "lalu", "kemudian", "dulu", "sekarang", "now", "today", "before", "instead", "cukup", "hanya"}
 
 
 def _motion_sfx_audio(jid):
@@ -574,10 +720,29 @@ def _motion_sfx_audio(jid):
     tl, dur = job.get("timeline") or [], float(job.get("duration") or 0)
     if not vol or not tl or dur <= 0:
         return narr
-    ev = [(max(sc["start"] - 0.3, 0), "whoosh", vol) for sc in tl[1:]]
-    for sc in tl:   # pop halus saat angka/nomor diucapkan
+    # ganti adegan: whoosh & swish bergantian; kata kunci memicu efek lain (maks 1 efek kata per adegan biar tidak ramai)
+    # hook 0-3 dtk: hentakan + swish di frame pertama (impact saja tak terdengar di speaker HP),
+    # lalu pop tiap ganti potongan teks (±4 kata) dan ting di akhir hook
+    ev = [(0.0, "impact", vol * 1.6), (0.0, "swish", vol * 1.1)]
+    hw = [w for w in (tl[0].get("words") or []) if 0.4 < w["t"] < 3.0] if tl else []
+    ev += [(w["t"], "pop", vol * 0.8) for w in hw[::4]]
+    if hw: ev.append((min(hw[-1]["t"] + 0.3, 3.0), "ting", vol * 0.8))
+    ev += [(max(sc["start"] - 0.3, 0), "whoosh" if i % 2 else "swish", vol) for i, sc in enumerate(tl[1:])]
+    last = -9
+    for i, sc in enumerate(tl):
+        used = 0
         for w in sc.get("words") or []:
-            if re.search(r"\d", w["w"]): ev.append((w["t"], "pop", vol * 0.6))
+            raw = w["w"].lower(); k, kind = re.sub(r"[^\w]", "", raw), None
+            if k in SFX_WRONG: kind, v = "buzz", 0.75
+            elif k in SFX_REVEAL: kind, v = "ting", 0.85
+            elif k in SFX_FUNNY: kind, v = "boing", 0.75
+            elif k in SFX_LIST: kind, v = "click", 0.9
+            elif re.search(r"\d", k): kind, v = "pop", 0.7
+            elif raw.endswith("?"): kind, v = "pop", 0.5
+            if kind and used < 2 and w["t"] - last > 0.9 and w["t"] > 0.4:   # maks 2 efek kata per adegan
+                ev.append((w["t"], kind, vol * v)); last = w["t"]; used += 1
+    if len(tl) > 1:   # kilau kecil saat adegan penutup
+        ev.append((tl[-1]["start"] + 0.05, "sparkle", vol * 0.7))
     trk = doc.sfx_track(ev, dur, os.path.join(d, "_sfx.wav"))
     out = os.path.join(d, "_mix.m4a")
     if narr:
@@ -679,12 +844,100 @@ def _motion_build(jid, p, key, meta, tl, dur, log, stage):
                          "narration": " ".join(s["text"] for s in tl), "opts": {"voice_mode": job["voice_mode"]}}]
         job["status"] = "selesai"; log("Selesai! Video siap.", 100)
         return
+    _motion_anim(jid, p, key, tl, dur, log, stage)
+
+
+def _motion_anim(jid, p, key, tl, dur, log, stage):
+    """Tahap kode animasi saja (suara/timeline sudah ada): manual (Claude Free) atau otomatis (AI berbayar)."""
+    job = JOBS[jid]
+    if p.get("anim") == "manual":   # Claude Free manual: simpan prompt, tunggu kode ditempel pengguna
+        prompt = motion.animation_prompt(job["name"], tl, dur, p["aspect"], p["style"], p["notes"],
+                                         photos=job.get("photos"), manual=True)
+        with open(os.path.join(JOBS_DIR, jid, "anim_prompt.txt"), "w", encoding="utf-8") as f: f.write(prompt)
+        job.pop("code_error", None)
+        job["status"] = "kode"; log("Menunggu kode animasi: salin prompt ke claude.ai, lalu tempel kodenya di sini.", 50)
+        return
     log("AI menulis kode animasi...", 20)
     html = motion.write_animation(job["name"], tl, dur, p["aspect"], p["style"], p["notes"], key, log=stage(20, 45),
                                   photos=job.get("photos"))
     log("Menguji animasi...", 45)
     html = _motion_html(jid, html, key, log)
     _motion_render(jid, html, log, 50)
+
+
+def process_motion_code(jid, html):
+    """Kode animasi dari Claude Free: uji, lalu render. Bila error, kembali ke status kode dengan pesan untuk Claude."""
+    job = JOBS[jid]
+    log, _ = _logger(jid)
+    def body():
+        job["status"] = "analisis"; log("Menguji kode animasi...", 52)
+        m = re.search(r"window\.DURATION\s*=\s*([\d.]+)", html)
+        err = None
+        if m and job.get("duration") and abs(float(m.group(1)) - float(job["duration"])) > 1.0:
+            err = (f"Kode ini memakai durasi {float(m.group(1)):.2f} detik, padahal narasi sekarang {float(job['duration']):.2f} "
+                   "detik (kemungkinan kode dari suara lama). Waktu adegan, subtitle, dan efek suara akan meleset. "
+                   "Pakai prompt TERBARU (📋 Salin prompt), atau minta Claude menyesuaikan seluruh waktu adegan & kata "
+                   "dengan timeline di prompt terbaru.")
+        err = err or motion.check(html, photos=_photo_paths(jid))
+        if err:
+            job["status"] = "kode"; job["code_error"] = err[:1500]
+            log("Kode animasi error. Salin pesan error ke claude.ai, minta diperbaiki, lalu tempel ulang.", 50); return
+        job.pop("code_error", None)
+        v = job.get("version", 0) + 1
+        with open(os.path.join(JOBS_DIR, jid, f"anim_v{v}.html"), "w", encoding="utf-8") as f: f.write(html)
+        job["version"] = v; save_job(jid)
+        _motion_render(jid, html, log, 55)
+    _run(jid, body)
+
+
+@app.route("/api/motion/<jid>/prompt")
+def motion_prompt(jid):
+    path = os.path.join(JOBS_DIR, jid, "anim_prompt.txt")
+    if jid not in JOBS or not os.path.exists(path): return jsonify(error="Prompt belum ada"), 404
+    with open(path, encoding="utf-8") as f: return jsonify(prompt=f.read(), error_text=JOBS[jid].get("code_error", ""))
+
+
+@app.route("/api/motion/<jid>/anim", methods=["POST"])
+def motion_anim_mode(jid):
+    """Ganti mode kode animasi (manual Claude Free <-> otomatis berbayar) tanpa mengulang naskah & suara."""
+    job = JOBS.get(jid)
+    anim = "manual" if (request.get_json(silent=True) or {}).get("anim") == "manual" else "ai"
+    if not job or job.get("kind") != "motion" or not job.get("timeline") or job.get("version") \
+            or job.get("status") not in ("kode", "error", "batal"):
+        return jsonify(error="Mode animasi hanya bisa diganti saat menunggu kode atau setelah gagal sebelum ada video"), 400
+    job["motion"]["anim"] = anim
+    job.update(status="antri", log="Menunggu giliran...", progress=20); save_job(jid)
+    def step(j, p):
+        log, stage = _logger(j)
+        _run(j, lambda: _motion_anim(j, p, _motion_key(p), job["timeline"], job["duration"], log, stage))
+    threading.Thread(target=_motion_slot, args=(jid, job["motion"], step), daemon=True).start()
+    return jsonify(ok=True)
+
+
+@app.route("/api/motion/<jid>/html")
+def motion_html(jid):
+    """Kode animasi versi terakhir, untuk revisi manual lewat Claude Free."""
+    job = JOBS.get(jid)
+    if not job or not job.get("version"): return jsonify(error="Belum ada kode animasi"), 404
+    with open(os.path.join(JOBS_DIR, jid, f"anim_v{job['version']}.html"), encoding="utf-8") as f:
+        return jsonify(html=f.read(), version=job["version"])
+
+
+@app.route("/api/motion/<jid>/code", methods=["POST"])
+def motion_code(jid):
+    job = JOBS.get(jid)
+    if not job or job.get("status") not in ("kode", "selesai", "error", "batal"):
+        return jsonify(error="Job tidak sedang menunggu kode"), 400
+    if not job.get("timeline"): return jsonify(error="Naskah/suara belum ada"), 400
+    raw = (request.get_json(silent=True) or {}).get("html") or request.form.get("html", "")
+    try:
+        html = motion._extract_html(raw)
+    except RuntimeError:
+        return jsonify(error="Kode HTML tidak ditemukan. Salin seluruh kode dari <!DOCTYPE html> sampai </html>."), 400
+    job.update(status="antri", log="Menunggu antrean render...", progress=50); save_job(jid)
+    threading.Thread(target=_motion_slot, args=(jid, job["motion"], lambda j, p: process_motion_code(j, html)),
+                     daemon=True).start()
+    return jsonify(ok=True)
 
 
 def process_motion_revise(jid, instruction, p):
@@ -706,11 +959,11 @@ def motion_create():
     import time
     f = request.form
     p = {"topic": f.get("topic", "").strip(), "script": f.get("script", "").strip(), "aspect": f.get("aspect", "9:16"),
-         "style": f.get("style", "modern"), "seconds": int(f.get("seconds") or 30), "voice_mode": f.get("voice_mode", "ai"),
+         "style": "+".join(dict.fromkeys(x for x in (f.get("style", "modern"), f.get("style2", "")) if x)), "seconds": int(f.get("seconds") or 30), "voice_mode": f.get("voice_mode", "ai"),
          "voice": f.get("voice", "id-ID-ArdiNeural"), "lang": f.get("lang", "id"), "ai_mode": f.get("ai_mode", "code"),
          "notes": f.get("notes", "").strip(), "review": f.get("review") == "1",
          "engine": "remotion" if f.get("engine") == "remotion" else "code", "brand": f.get("brand", "").strip()[:30],
-         "label": f.get("label", "").strip()[:60],
+         "label": f.get("label", "").strip()[:60], "anim": "manual" if f.get("anim") == "manual" else "ai",
          "sfx": f.get("sfx", "tipis") if f.get("sfx", "tipis") in ("tipis", "sedang", "none") else "tipis"}
     if p["engine"] == "remotion":
         if p["voice_mode"] == "upload":
@@ -771,7 +1024,10 @@ MOTION_SEM = threading.Semaphore(MOTION_PARALLEL)
 
 
 def _motion_slot(jid, p, fn=None):
+    RESUME[jid] = lambda: _motion_slot(jid, p, fn)   # diulang utuh di slot antrean bila kena limit
     with MOTION_SEM:
+        if jid in CANCELLED:   # dibatalkan selagi menunggu antrean: jangan mulai
+            _run(jid, lambda: None); return
         (fn or process_motion)(jid, p)
 
 
@@ -836,6 +1092,8 @@ def motion_script(jid):
         sc["text"] = t
     if str(data.get("title", "")).strip():
         job["draft"]["title"] = job["name"] = data["title"].strip()
+    if data.get("anim") in ("ai", "manual"):
+        job["motion"]["anim"] = data["anim"]
     voice = str(data.get("voice") or "").strip()
     if voice == "eleven_web":   # naskah disimpan; suara datang dari ekstensi ElevenLabs (/eleven_audio melanjutkan)
         job["eleven_wait"] = True
@@ -858,6 +1116,10 @@ def eleven_queue():
             "text": " ".join(s.get("text", "") for s in j["draft"].get("scenes") or []), "wait": bool(j.get("eleven_wait"))}
            for j in sorted(JOBS.values(), key=lambda x: (not x.get("eleven_wait"), x.get("created", 0)))
            if j.get("kind") == "motion" and j.get("status") == "naskah" and j.get("draft")]
+    out += [{"id": j["id"], "name": "🔁 " + j.get("name", ""), "lang": (j.get("motion") or {}).get("lang", "en"),
+             "text": " ".join(s.get("text", "") for s in j.get("timeline") or []), "wait": True}
+            for j in JOBS.values() if j.get("kind") == "motion" and j.get("eleven_revoice")
+            and j.get("status") in ("selesai", "error", "batal")]
     return jsonify(jobs=out)
 
 
@@ -866,8 +1128,9 @@ def motion_eleven_audio(jid):
     """Terima MP3 dari ekstensi ElevenLabs (base64), lalu lanjutkan job: waktu kata dari audio -> animasi -> render."""
     import base64
     job = JOBS.get(jid)
-    if not job or job.get("kind") != "motion" or job.get("status") != "naskah" or not job.get("draft"):
-        return jsonify(error="Job tidak sedang di tahap NASKAH"), 400
+    revoice = bool(job and job.get("eleven_revoice") and job.get("status") in ("selesai", "error", "batal"))
+    if not job or job.get("kind") != "motion" or (not revoice and (job.get("status") != "naskah" or not job.get("draft"))):
+        return jsonify(error="Job tidak sedang menunggu suara ElevenLabs"), 400
     data = request.get_json(silent=True) or {}
     try:
         raw = base64.b64decode(data.get("audio") or "")
@@ -876,6 +1139,12 @@ def motion_eleven_audio(jid):
     if len(raw) < 2000: return jsonify(error="Audio kosong/terlalu pendek"), 400
     job["audio"] = "narasi_eleven.mp3"
     with open(os.path.join(JOBS_DIR, jid, job["audio"]), "wb") as f: f.write(raw)
+    if revoice:   # ganti suara video jadi: waktu kata dari audio baru -> kode animasi -> render
+        job.pop("eleven_revoice", None)
+        job.update(status="antri", log="Suara ElevenLabs diterima, menunggu giliran...", progress=0); save_job(jid)
+        threading.Thread(target=_motion_slot, args=(jid, "upload", lambda j, m: process_motion_revoice(j, "upload", None)),
+                         daemon=True).start()
+        return jsonify(ok=True)
     job["motion"]["voice_mode"] = job["voice_mode"] = "eleven_web"; job.pop("eleven_wait", None)
     job.update(status="antri", log="Suara ElevenLabs diterima, menunggu giliran...", progress=15); save_job(jid)
     threading.Thread(target=_motion_slot, args=(jid, job["motion"], process_motion_continue), daemon=True).start()
@@ -887,7 +1156,7 @@ def motion_revise(jid):
     job = JOBS.get(jid)
     if not job or job.get("kind") != "motion" or not job.get("version"):
         return jsonify(error="Animasi belum ada"), 400
-    if job["status"] not in ("selesai", "error"):
+    if job["status"] not in ("selesai", "error", "batal"):
         return jsonify(error="Masih diproses"), 400
     ins = request.form.get("instruction", "").strip()
     if not ins: return jsonify(error="Tulis apa yang mau diubah"), 400
@@ -945,16 +1214,21 @@ def motion_rerender(jid):
     job = JOBS.get(jid)
     if not job or job.get("kind") != "motion" or not job.get("version"):
         return jsonify(error="Animasi belum ada"), 400
-    if job["status"] not in ("selesai", "error"):
+    if job["status"] not in ("selesai", "error", "batal"):
         return jsonify(error="Masih diproses"), 400
     mode = request.form.get("voice_mode", "keep")
-    if mode not in ("keep", "ai", "none", "upload"):
+    if mode not in ("keep", "ai", "none", "upload", "eleven_web"):
         return jsonify(error="Pilihan suara tidak dikenal"), 400
     if mode != "keep" and not job.get("timeline"):
         return jsonify(error="Timeline naskah tidak ada"), 400
     if request.form.get("sfx") in ("tipis", "sedang", "none"): job["motion"]["sfx"] = request.form["sfx"]
     if "label" in request.form: job["motion"]["label"] = request.form["label"].strip()[:60]
     voice = request.form.get("voice", "").strip() or job["motion"].get("voice") or "en-US-GuyNeural"
+    if mode == "eleven_web":   # suara dibuat lewat ekstensi ElevenLabs; /eleven_audio yang melanjutkan render
+        job["eleven_revoice"] = True
+        job.update(log="Menunggu suara dari ekstensi ElevenLabs (ganti suara)..."); save_job(jid)
+        return jsonify(ok=True, wait="eleven")
+    job.pop("eleven_revoice", None)
     if mode == "upload":
         up = request.files.get("audio")
         if not (up and up.filename): return jsonify(error="Pilih file audio narasi"), 400
@@ -975,7 +1249,8 @@ def motion_preview(jid):
     job = JOBS.get(jid)
     if not job or not job.get("version"): return "Belum ada animasi", 404
     with open(os.path.join(JOBS_DIR, jid, f"anim_v{job['version']}.html"), encoding="utf-8") as f: html = f.read()
-    audio = f'<audio id="snd" src="/media/{jid}/{job["audio"]}"></audio>' if job.get("audio") else ""
+    audio = (f'<audio id="snd" preload="auto" src="/media/{jid}/{quote(job["audio"])}?k={_media_tok(jid)}"></audio>'
+             if job.get("audio") else "")
     player = audio + """<style>html,body{margin:0;height:100%;background:#000;overflow:hidden}
 canvas{width:100%!important;height:100%!important;object-fit:contain;display:block}
 #pb{position:fixed;left:8px;bottom:8px;font:600 14px Segoe UI;color:#fff;background:#0009;border:0;border-radius:8px;padding:6px 10px;cursor:pointer}</style>
@@ -985,6 +1260,7 @@ try{renderFrame(Math.min(t,DURATION-0.001))}catch(e){}}requestAnimationFrame(loo
 b.onclick=()=>{play=!play;b.textContent=play?'⏸ Jeda':'▶ Putar';if(s){play?s.play():s.pause()}else if(play)t0=performance.now()};
 try{renderFrame(0.5)}catch(e){}requestAnimationFrame(loop)})()</script>"""
     html = motion.with_photos(html, _photo_paths(jid))
+    html = "<script>window.__RENDER__=true</script>" + html   # pratinjau dashboard punya pemutar sendiri
     page = html.replace("</body>", player + "</body>") if "</body>" in html else html + player
     # kode animasi ditulis AI: tanpa akses jaringan/API (hanya script & style inline + audio narasi)
     return page, 200, {"Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; "
@@ -1043,7 +1319,7 @@ def mini_render(jid):
     job = JOBS.get(jid)
     if not job or job.get("kind") != "mini" or not job.get("plan"):
         return jsonify(error="Rencana belum ada"), 400
-    if job["status"] not in ("selesai", "error"):
+    if job["status"] not in ("selesai", "error", "batal"):
         return jsonify(error="Masih diproses"), 400
     d = os.path.join(JOBS_DIR, jid)
     ups = [u for u in request.files.getlist("clips") if u and u.filename]
@@ -1629,7 +1905,7 @@ def _prepare(jid):
     job, d = JOBS.get(jid), os.path.join(JOBS_DIR, jid)
     if not job or job.get("kind") == "download":
         return None, "Project tidak ditemukan"
-    if job["status"] not in ("selesai", "error"):
+    if job["status"] not in ("selesai", "error", "batal"):
         return None, "Project masih diproses"
     if not os.path.exists(os.path.join(d, "transcript.json")):
         return None, "Transkrip belum ada. Jalankan project ini dari awal."
@@ -1697,8 +1973,67 @@ def rerender(jid):
     return jsonify(ok=True)
 
 
+IDLE = ("selesai", "error", "batal", "naskah", "limit", "kode")
+
+
+def _resume(jid):
+    job = JOBS.get(jid)
+    if not job or not (job.get("status") == "limit" or (job.get("status") == "error" and job.get("kind") == "motion" and not job.get("version"))): return False
+    fn = RESUME.pop(jid, None)
+    if not fn and job.get("kind") == "motion" and job.get("motion"):   # server sempat restart: ulang dari awal
+        fn = lambda: _motion_slot(jid, job["motion"])
+    if not fn: return False
+    job.update(status="antri", log="Melanjutkan setelah kuota reset...", progress=0); job.pop("resume_at", None); save_job(jid)
+    threading.Thread(target=fn, daemon=True).start()
+    return True
+
+
+@app.route("/api/job/<jid>/archive", methods=["POST"])
+def archive_job(jid):
+    job = JOBS.get(jid)
+    if not job: return jsonify(error="Job tidak ada"), 404
+    if (request.get_json(silent=True) or {}).get("archived", True): job["archived"] = True
+    else: job.pop("archived", None)
+    save_job(jid)
+    return jsonify(ok=True)
+
+
+@app.route("/api/job/<jid>/resume", methods=["POST"])
+def resume_job(jid):
+    if not _resume(jid): return jsonify(error="Job ini tidak bisa dilanjutkan otomatis. Buat ulang projectnya."), 400
+    return jsonify(ok=True)
+
+
+def _limit_watcher():
+    """Tiap menit: lanjutkan job berstatus limit yang jam reset-nya sudah lewat."""
+    import time, datetime as dt
+    while True:
+        time.sleep(60)
+        now = dt.datetime.now().isoformat(timespec="minutes")
+        for jid, job in list(JOBS.items()):
+            if job.get("status") == "limit" and (job.get("resume_at") or "") <= now:
+                try: _resume(jid)
+                except Exception: traceback.print_exc()
+
+
+threading.Thread(target=_limit_watcher, daemon=True).start()
+
+
+@app.route("/api/job/<jid>/cancel", methods=["POST"])
+def cancel(jid):
+    job = JOBS.get(jid)
+    if not job: return jsonify(error="Job tidak ada"), 404
+    if job.get("status") in IDLE: return jsonify(ok=True, idle=True)
+    CANCELLED.add(jid); job["log"] = "Membatalkan... (menunggu langkah yang sedang jalan berhenti)"
+    return jsonify(ok=True)
+
+
 @app.route("/api/job/<jid>", methods=["DELETE"])
 def delete(jid):
+    job = JOBS.get(jid)
+    if job and job.get("status") not in IDLE:   # masih diproses: hentikan dulu, folder dihapus saat proses berhenti
+        job["_delete"] = True; CANCELLED.add(jid); job["log"] = "Membatalkan & menghapus..."
+        return jsonify(ok=True, pending=True)
     JOBS.pop(jid, None); shutil.rmtree(os.path.join(JOBS_DIR, jid), ignore_errors=True)
     return jsonify(ok=True)
 
@@ -1880,4 +2215,6 @@ if __name__ == "__main__":
             s.close()
         except OSError:
             pass
+    if not load_cfg().get("password_hash"):
+        print("PERINGATAN: belum ada password. Buka http://127.0.0.1:5000/login untuk membuatnya sebelum diakses dari device lain.")
     app.run(host=host, port=5000, debug=False, threaded=True)
